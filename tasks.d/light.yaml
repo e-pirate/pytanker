@@ -1,11 +1,12 @@
----
 light:
-  conditions:
-    - state: 'on'
-      - type: time
-        start: 10:00
-      - type: power
-        value: ac
-    - state: 'off'
-      - type: period
-        duration: 8h
+  states:
+    'on':
+      conditions:
+        - type: time
+          start: 10:00
+          duration: 8h
+        - type: power
+          value: ac
+      actions:
+        - peripheral: light
+          state: 'on' 

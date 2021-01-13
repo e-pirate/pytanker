@@ -70,7 +70,7 @@ def main():
                 newpyaml = yaml.safe_load(f)
             for newpdev in newpyaml:
                 if newpdev not in peripherals:
-                    peripherals |= { newpdev: newpyaml[newpdev] }
+                    peripherals = {**peripherals, newpdev: newpyaml[newpdev]}
                 else:
                     print('Already exist: ', newpdev)
 
