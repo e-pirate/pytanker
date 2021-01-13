@@ -1,0 +1,11 @@
+co2:
+  states:
+    'on':
+      method:  post
+      url:     /v1/co2
+      data:    'on'
+    'off':     &default
+      method:  post
+      url:     /v1/co2
+      data:    'off'
+    default:   *default

@@ -1,0 +1,11 @@
+---
+light:
+  conditions:
+    - state: 'on'
+      - type: time
+        start: 10:00
+      - type: power
+        value: ac
+    - state: 'off'
+      - type: period
+        duration: 8h
