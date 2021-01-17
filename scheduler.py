@@ -6,6 +6,13 @@ import argparse
 import logging
 import logging.handlers
 import yaml
+from yaml.composer import Composer
+from yaml.constructor import SafeConstructor
+from yaml.parser import Parser
+from yaml.reader import Reader
+from yaml.resolver import BaseResolver, Resolver as DefaultResolver
+from yaml.scanner import Scanner
+import re
 import time
 import os
 import json
@@ -63,23 +70,53 @@ def main():
     log.info('Starting scheduler v' + _version_ + '..')
     log.debug('Log level set to: ' + logging.getLevelName(log.level))
 
-    peripherals = {}
-    for entry in os.scandir(config['peripherals']):
+    class MyResolver(BaseResolver):
+        pass
+
+    MyResolver.add_implicit_resolver(
+       u'tag:yaml.org,2002:bool',
+       re.compile(u'''^(?:true|True|TRUE|false|False|FALSE)$''', re.X),
+       list(u'tTfF'))
+
+    class MyLoader(Reader, Scanner, Parser, Composer, SafeConstructor, MyResolver):
+        def __init__(self, stream):
+            Reader.__init__(self, stream)
+            Scanner.__init__(self)
+            Parser.__init__(self)
+            Composer.__init__(self)
+            SafeConstructor.__init__(self)
+            MyResolver.__init__(self)
+
+    devices = {}
+    for entry in os.scandir(config['devices']):
         if entry.is_file() and (entry.name.endswith(".yaml") or entry.name.endswith(".yml")):
             with open(entry.path) as f:
-                newpyaml = yaml.safe_load(f)
-            for newpdev in newpyaml:
-                if newpdev not in peripherals:
-                    peripherals = {**peripherals, newpdev: newpyaml[newpdev]}
+                newdyaml = yaml.load(f, Loader=MyLoader)
+            for newdev in newdyaml:
+                if newdev not in devices:
+                    devices = {**devices, newdev: newdyaml[newdev]}
                 else:
-                    print('Already exist: ', newpdev)
+                    log.error('Peripheral device: \'' + newdev + '\' already exist.')
 
-    print(json.dumps(peripherals, indent=2, sort_keys=True))
+    tasks = {}
+    for entry in os.scandir(config['tasks']):
+        if entry.is_file() and (entry.name.endswith(".yaml") or entry.name.endswith(".yml")):
+            with open(entry.path) as f:
+                newtyaml = yaml.load(f, Loader=MyLoader)
+            for newtask in newtyaml:
+                if newtask not in tasks:
+                    tasks = {**tasks, newtask: newtyaml[newtask]}
+                else:
+                    log.error('Task: \'' + newtask + '\' already exist.')
 
-#    print(peripherals['light']['states']['on'])
+#    print(json.dumps(devices, indent=2, sort_keys=True))
+#    print(json.dumps(tasks, indent=2, sort_keys=True))
+#    print(tasks)
 
-#    for key in peripherals:
-#        print(key, '::', peripherals[key])
+    print(devices['light']['states']['on'])
+
+#    for key in devices:
+#        print(key, '::', devices[key])
 #
 #    while True:
 #        time.sleep(10)

@@ -1,16 +1,19 @@
-light:
+co2:
   states:
     on:
       conditions:
         - type: time
-          start: 10:00
+          start: 9:30
           duration: 8h
+        - type: state
+          peripheral: light
+          state: on
         - type: power
           value: ac
       actions:
-        - peripheral: light
+        - peripheral: co2
           state: on 
     default:
       actions:
-        - peripheral: light
+        - peripheral: co2
           state: off

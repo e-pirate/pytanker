@@ -1,7 +1,7 @@
 log:
   destination:  console
   level:        debug
-peripherals:    peripherals.d/
+devices:        devices.d/
 tasks:          tasks.d/
 statedb:        statedb.yaml
 controller:
