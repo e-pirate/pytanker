@@ -8,9 +8,9 @@ light:
         - type: power
           value: ac
       actions:
-        - peripheral: light
+        - device: light
           state: on 
     default:
       actions:
-        - peripheral: light
+        - device: light
           state: off

@@ -10,12 +10,13 @@ from yaml.composer import Composer
 from yaml.constructor import SafeConstructor
 from yaml.parser import Parser
 from yaml.reader import Reader
-from yaml.resolver import BaseResolver, Resolver as DefaultResolver
+from yaml.resolver import BaseResolver
 from yaml.scanner import Scanner
 import re
 import time
 import os
 import json
+from datetime import datetime
 
 _version_ = '0.0.1'
 _author_ = 'Artem Illarionov <e-pirate@mail.ru>'
@@ -96,7 +97,12 @@ def main():
                 if newdev not in devices:
                     devices = {**devices, newdev: newdyaml[newdev]}
                 else:
-                    log.error('Peripheral device: \'' + newdev + '\' already exist.')
+                    log.error('Peripheral device: \'' + newdev + '\' already exist')
+
+    if len(devices) == 0:
+        log.crit('No peripheral devices found, unable to continue')
+        sys.exit(1)
+    log.info('Found ' + str(len(devices)) + ' peripheral device(s)')
 
     tasks = {}
     for entry in os.scandir(config['tasks']):
@@ -107,16 +113,50 @@ def main():
                 if newtask not in tasks:
                     tasks = {**tasks, newtask: newtyaml[newtask]}
                 else:
-                    log.error('Task: \'' + newtask + '\' already exist.')
+                    log.error('Task: \'' + newtask + '\' already exist')
+
+    if len(tasks) == 0:
+        log.crit('No tasks found, unable to continue')
+        sys.exit(1)
+    log.info('Found ' + str(len(tasks)) + ' task(s)')
+
+    log.info('Entering main task loop..')
 
 #    print(json.dumps(devices, indent=2, sort_keys=True))
 #    print(json.dumps(tasks, indent=2, sort_keys=True))
 #    print(tasks)
 
-    print(devices['light']['states']['on'])
+#    print(devices['light']['states']['on'])
+    def check_cndtn_time(cndtn):
+        if cndtn['start'].count(':') == 1:
+            start = datetime.strptime(cndtn['start'], "%H:%M").time()
+        elif cndtn['start'].count(':') == 2:
+            start = datetime.strptime(cndtn['start'], "%H:%M:%S").time()
 
-#    for key in devices:
-#        print(key, '::', devices[key])
+        if datetime.now().time() < start:                                                           # did not reached start time yet
+            return(False)
+
+        return(True)
+
+    def check_cndtn_state(cndtn):
+        return(True)
+
+    def check_cndtn_power(cndtn):
+        return(True)
+
+    for task in tasks:
+        for state in tasks[task]['states']:
+            if state != 'default':
+                print(task + '->' + state + ':')
+                for condition in tasks[task]['states'][state]['conditions']:
+                    if condition['type'] == 'time':
+                        print(' ' + condition['type'] + ':', check_cndtn_time(condition))
+                    elif condition['type'] == 'state':
+                        print(' ' + condition['type'] + ':', check_cndtn_state(condition))
+                    elif condition['type'] == 'power':
+                        print(' ' + condition['type'] + ':', check_cndtn_power(condition))
+                    else:
+                        log.error('Unknown condition type: ' +  condition['type'])
 #
 #    while True:
 #        time.sleep(10)
