@@ -16,7 +16,7 @@ import re
 import time
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 _version_ = '0.0.1'
 _author_ = 'Artem Illarionov <e-pirate@mail.ru>'
@@ -126,22 +126,34 @@ def main():
 #    print(json.dumps(tasks, indent=2, sort_keys=True))
 #    print(tasks)
 
-#    print(devices['light']['states']['on'])
-    def check_cndtn_time(cndtn):
-        if cndtn['start'].count(':') == 1:
-            start = datetime.strptime(cndtn['start'], "%H:%M").time()
-        elif cndtn['start'].count(':') == 2:
-            start = datetime.strptime(cndtn['start'], "%H:%M:%S").time()
+#TODO: check if start is preore stop, start + duration < 2d + call check_cnd_time function and check for exceptions
 
-        if datetime.now().time() < start:                                                           # did not reached start time yet
+#    print(devices['light']['states']['on'])
+    def check_cond_time(cond):
+        def srtstp2tddt(instr):
+            if instr.count(':') == 1:
+                return(datetime.combine(datetime.now().date(), datetime.strptime(instr, "%H:%M").time()))
+            elif instr.count(':') == 2:
+                return(datetime.combine(datetime.now().date(), datetime.strptime(instr, "%H:%M:%S").time()))
+            raise ValueError
+
+        if 'stop' in cond and datetime.now() > srtstp2tddt(cond['stop']):                               # stop time is set and we already passed it
+            return(False)
+
+        start = srtstp2tddt(cond['start'])
+
+        if 'duration' in cond:
+            duration = cond['duration'].lower()
+
+        if datetime.now() < start:                                                                      # did not reached start time yet
             return(False)
 
         return(True)
 
-    def check_cndtn_state(cndtn):
+    def check_cond_state(cond):
         return(True)
 
-    def check_cndtn_power(cndtn):
+    def check_cond_power(cond):
         return(True)
 
     for task in tasks:
@@ -150,11 +162,11 @@ def main():
                 print(task + '->' + state + ':')
                 for condition in tasks[task]['states'][state]['conditions']:
                     if condition['type'] == 'time':
-                        print(' ' + condition['type'] + ':', check_cndtn_time(condition))
+                        print(' ' + condition['type'] + ':', check_cond_time(condition))
                     elif condition['type'] == 'state':
-                        print(' ' + condition['type'] + ':', check_cndtn_state(condition))
+                        print(' ' + condition['type'] + ':', check_cond_state(condition))
                     elif condition['type'] == 'power':
-                        print(' ' + condition['type'] + ':', check_cndtn_power(condition))
+                        print(' ' + condition['type'] + ':', check_cond_power(condition))
                     else:
                         log.error('Unknown condition type: ' +  condition['type'])
 #
