@@ -126,10 +126,10 @@ def main():
 #    print(json.dumps(tasks, indent=2, sort_keys=True))
 #    print(tasks)
 
-#TODO: check if start is preore stop, start + duration < 2d + call check_cnd_time function and check for exceptions
+#TODO: check if start is preore stop, start + duration < 1d + call check_cnd_time function and check for exceptions
 
 #    print(devices['light']['states']['on'])
-    def check_cond_time(cond):
+    def checkcond_time(cond):
         def srtstp2tddt(instr):
             if instr.count(':') == 1:
                 return(datetime.combine(datetime.now().date(), datetime.strptime(instr, "%H:%M").time()))
@@ -144,16 +144,33 @@ def main():
 
         if 'duration' in cond:
             duration = cond['duration'].lower()
+            hours = minutes = seconds = 0
+            if 'h' in duration:
+                hours, duration = duration.split('h')
+            if 'm' in duration:
+                minutes, duration = duration.split('m')
+            if 's' in duration:
+                seconds, duration = duration.split('s')
+            duration = timedelta(hours=int(hours), minutes=int(minutes), seconds=int(seconds))
+
+            if (start + duration).day <= datetime.now().day:                                            # check if task ends today
+                if datetime.now() > start + duration:                                                   # check if we already passed end time
+                    return(False)
+            else:                                                                                       # task will end tomorrow
+                if datetime.now() < start and datetime.now() > start + duration - timedelta(days=1):    # check if we did't reached start time yet
+                   return(False)                                                                        # or already passed the remainig part of the end time
+                else:                                                                                   # we are still withing the remainig part of the end time
+                    return(True)                                                                        # return True now, as we are still withing the remaining part
 
         if datetime.now() < start:                                                                      # did not reached start time yet
             return(False)
 
         return(True)
 
-    def check_cond_state(cond):
+    def checkcond_state(cond):
         return(True)
 
-    def check_cond_power(cond):
+    def checkcond_power(cond):
         return(True)
 
     for task in tasks:
@@ -162,11 +179,11 @@ def main():
                 print(task + '->' + state + ':')
                 for condition in tasks[task]['states'][state]['conditions']:
                     if condition['type'] == 'time':
-                        print(' ' + condition['type'] + ':', check_cond_time(condition))
+                        print(' ' + condition['type'] + ':', checkcond_time(condition))
                     elif condition['type'] == 'state':
-                        print(' ' + condition['type'] + ':', check_cond_state(condition))
+                        print(' ' + condition['type'] + ':', checkcond_state(condition))
                     elif condition['type'] == 'power':
-                        print(' ' + condition['type'] + ':', check_cond_power(condition))
+                        print(' ' + condition['type'] + ':', checkcond_power(condition))
                     else:
                         log.error('Unknown condition type: ' +  condition['type'])
 #
