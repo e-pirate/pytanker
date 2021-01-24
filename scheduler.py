@@ -159,8 +159,8 @@ def main():
                 if now > start + duration:                                                              # check if we already passed end time
                     return(False)
             else:                                                                                       # task will end tomorrow
-                if now < start and now > start + duration - timedelta(days=1):                          # check if we did't reached start time yet
-                    return(False)                                                                       # or already passed the remainig part of the end time
+                if start + duration - timedelta(days=1) < now < start:                                  # check if we already passed the remainig part of the end time
+                    return(False)                                                                       # or did't reached start time yet
                 else:                                                                                   # we are still withing the remainig part of the end time
                     return(True)                                                                        # return True now, as we are still withing the remaining part
 
