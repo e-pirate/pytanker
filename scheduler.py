@@ -130,14 +130,16 @@ def main():
 
 #    print(devices['light']['states']['on'])
     def checkcond_time(cond):
-        def srtstp2tddt(instr):
-            if instr.count(':') == 1:
-                return(datetime.combine(datetime.now().date(), datetime.strptime(instr, "%H:%M").time()))
-            elif instr.count(':') == 2:
-                return(datetime.combine(datetime.now().date(), datetime.strptime(instr, "%H:%M:%S").time()))
+        now = datetime.now()
+
+        def srtstp2tddt(timestr):
+            if timestr.count(':') == 1:
+                return(datetime.combine(now.date(), datetime.strptime(timestr, "%H:%M").time()))
+            elif timestr.count(':') == 2:
+                return(datetime.combine(now.date(), datetime.strptime(timestr, "%H:%M:%S").time()))
             raise ValueError
 
-        if 'stop' in cond and datetime.now() > srtstp2tddt(cond['stop']):                               # stop time is set and we already passed it
+        if 'stop' in cond and now > srtstp2tddt(cond['stop']):                                          # stop time is set and we already passed it
             return(False)
 
         start = srtstp2tddt(cond['start'])
@@ -153,16 +155,16 @@ def main():
                 seconds, duration = duration.split('s')
             duration = timedelta(hours=int(hours), minutes=int(minutes), seconds=int(seconds))
 
-            if (start + duration).day <= datetime.now().day:                                            # check if task ends today
-                if datetime.now() > start + duration:                                                   # check if we already passed end time
+            if (start + duration).day <= now.day:                                                       # check if task ends today
+                if now > start + duration:                                                              # check if we already passed end time
                     return(False)
             else:                                                                                       # task will end tomorrow
-                if datetime.now() < start and datetime.now() > start + duration - timedelta(days=1):    # check if we did't reached start time yet
-                   return(False)                                                                        # or already passed the remainig part of the end time
+                if now < start and now > start + duration - timedelta(days=1):                          # check if we did't reached start time yet
+                    return(False)                                                                       # or already passed the remainig part of the end time
                 else:                                                                                   # we are still withing the remainig part of the end time
                     return(True)                                                                        # return True now, as we are still withing the remaining part
 
-        if datetime.now() < start:                                                                      # did not reached start time yet
+        if now < start:                                                                                 # did not reached start time yet
             return(False)
 
         return(True)
