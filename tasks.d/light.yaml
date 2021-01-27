@@ -1,16 +1,16 @@
 light:
   states:
-    on:
+    - name: on
       conditions:
         - type: time
-          start: 10:00
+          start: 20:00
           duration: 8h
         - type: power
           value: ac
       actions:
         - device: light
           state: on 
-    default:
+    - name: default
       actions:
         - device: light
           state: off

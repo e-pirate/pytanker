@@ -128,8 +128,7 @@ def main():
 
 #TODO: check if start is preore stop, start + duration < 1d + call check_cnd_time function and check for exceptions
 
-#    print(devices['light']['states']['on'])
-    def checkcond_time(cond):
+    def checkcond_time(condition):
         now = datetime.now()
 
         def srtstp2tddt(timestr):
@@ -139,13 +138,13 @@ def main():
                 return(datetime.combine(now.date(), datetime.strptime(timestr, "%H:%M:%S").time()))
             raise ValueError
 
-        if 'stop' in cond and now > srtstp2tddt(cond['stop']):                                          # stop time is set and we already passed it
+        if 'stop' in condition and now > srtstp2tddt(condition['stop']):                                # stop time is set and we already passed it
             return(False)
 
-        start = srtstp2tddt(cond['start'])
+        start = srtstp2tddt(condition['start'])
 
-        if 'duration' in cond:
-            duration = cond['duration'].lower()
+        if 'duration' in condition:
+            duration = condition['duration'].lower()
             hours = minutes = seconds = 0
             if 'h' in duration:
                 hours, duration = duration.split('h')
@@ -169,25 +168,29 @@ def main():
 
         return(True)
 
-    def checkcond_state(cond):
+    def checkcond_state(condition):
         return(True)
 
-    def checkcond_power(cond):
+    def checkcond_power(condition):
         return(True)
+
+    def checkcond(condition):
+        if condition['type'] == 'time':
+            return(checkcond_time(condition))
+        if condition['type'] == 'state':
+            return(checkcond_state(condition))
+        if condition['type'] == 'power':
+            return(checkcond_power(condition))
 
     for task in tasks:
         for state in tasks[task]['states']:
-            if state != 'default':
-                print(task + '->' + state + ':')
-                for condition in tasks[task]['states'][state]['conditions']:
-                    if condition['type'] == 'time':
-                        print(' ' + condition['type'] + ':', checkcond_time(condition))
-                    elif condition['type'] == 'state':
-                        print(' ' + condition['type'] + ':', checkcond_state(condition))
-                    elif condition['type'] == 'power':
-                        print(' ' + condition['type'] + ':', checkcond_power(condition))
-                    else:
-                        log.error('Unknown condition type: ' +  condition['type'])
+            if state['name'] != 'default':
+                rc = True
+                for condition in state['conditions']:
+                    if not checkcond(condition):
+                        rc = False
+                        break
+                print(task + '->' + state['name'] + ': ' + str(rc))
 #
 #    while True:
 #        time.sleep(10)

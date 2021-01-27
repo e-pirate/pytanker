@@ -1,6 +1,6 @@
 co2:
   states:
-    on:
+    - name: on
       conditions:
         - type: time
           start: 9:30
@@ -13,7 +13,7 @@ co2:
       actions:
         - device: co2
           state: on 
-    default:
+    - name: default
       actions:
         - device: co2
           state: off
