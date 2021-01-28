@@ -94,7 +94,7 @@ def main():
             with open(entry.path) as f:
                 newdyaml = yaml.load(f, Loader=MyLoader)
             for newdev in newdyaml:
-                if newdev not in devices:
+                if newdev not in devices: # TODO: should be moved to pre check procedure
                     devices = {**devices, newdev: newdyaml[newdev]}
                 else:
                     log.error('Peripheral device: \'' + newdev + '\' already exist')
@@ -110,7 +110,7 @@ def main():
             with open(entry.path) as f:
                 newtyaml = yaml.load(f, Loader=MyLoader)
             for newtask in newtyaml:
-                if newtask not in tasks:
+                if newtask not in tasks: # TODO: should be moved to pre check procedure
                     tasks = {**tasks, newtask: newtyaml[newtask]}
                 else:
                     log.error('Task: \'' + newtask + '\' already exist')
@@ -120,13 +120,23 @@ def main():
         sys.exit(1)
     log.info('Found ' + str(len(tasks)) + ' task(s)')
 
-    log.info('Entering main task loop..')
+    statedb = {}
+    for task in tasks:
+        statedb[task] = {}
+        for state in tasks[task]['states']:
+            statedb[task][state['name']] = 'unknown'
 
-#    print(json.dumps(devices, indent=2, sort_keys=True))
-#    print(json.dumps(tasks, indent=2, sort_keys=True))
-#    print(tasks)
+    if len(statedb) == 0:
+        log.crit('Failed to form state DB, unable to continue')
+        sys.exit(1)
+    log.info('Formed state DB for ' + str(len(statedb)) + ' tasks')
 
-#TODO: check if start is preore stop, start + duration < 1d + call check_cnd_time function and check for exceptions
+
+    log.info('Entering main event loop..')
+
+#    print(json.dumps(statedb, indent=2, sort_keys=True))
+
+#TODO: check if start is preore stop, duration < 1d + call check_cnd_time function and check for exceptions
 
     def checkcond_time(condition):
         now = datetime.now()
@@ -182,19 +192,21 @@ def main():
         if condition['type'] == 'power':
             return(checkcond_power(condition))
 
-    for task in tasks:
-        for state in tasks[task]['states']:
-            if state['name'] != 'default':
-                rc = True
-                for condition in state['conditions']:
-                    if not checkcond(condition):
-                        rc = False
-                        break
-                print(task + '->' + state['name'] + ': ' + str(rc))
-#
-#    while True:
-#        time.sleep(10)
-#        log.debug('10 sec')
+    # unknown -> inactive -> pending -> active
+    while True:
+        for task in tasks:
+            for state in tasks[task]['states']:
+                if state['name'] != 'default':
+                    rc = 'active'
+                    for condition in state['conditions']:
+                        if not checkcond(condition):
+                            rc = 'inactive'
+                            break                                                                           # Stop checking conditions on first failure
+                    if statedb[task][state['name']] != rc:
+                        statedb[task][state['name']] = rc
+#                        log.info('Chaging ' + task + ' state ' + statedb[task][state['name']] + ' -> ' + state['name'])
+#        print(json.dumps(statedb, indent=2, sort_keys=True))
+        time.sleep(1)
 
 #    log.critical('Failed')
 
