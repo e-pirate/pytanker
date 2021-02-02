@@ -120,6 +120,7 @@ def main():
         sys.exit(1)
     log.info('Found ' + str(len(tasks)) + ' task(s)')
 
+    # Create an empty state DB from all task states
     statedb = {}
     for task in tasks:
         statedb[task] = {}
@@ -194,18 +195,44 @@ def main():
 
     # unknown -> inactive -> pending -> active
     while True:
+        state_update = False 
         for task in tasks:
             for state in tasks[task]['states']:
-                if state['name'] != 'default':
-                    rc = 'active'
-                    for condition in state['conditions']:
-                        if not checkcond(condition):
-                            rc = 'inactive'
-                            break                                                                           # Stop checking conditions on first failure
-                    if statedb[task][state['name']] != rc:
-                        statedb[task][state['name']] = rc
-#                        log.info('Chaging ' + task + ' state ' + statedb[task][state['name']] + ' -> ' + state['name'])
+                if state['name'] == 'default':                                                          # Skip default state
+                    continue
+                rc = 'active'
+                for condition in state['conditions']:                                                   # Cycle through all conditions for the current state
+                    if not checkcond(condition):                                                        # Check if current condition failed
+                        rc = 'inactive'
+                        break                                                                           # Stop checking conditions on first failure
+                if statedb[task][state['name']] != rc:
+                    if rc == 'active':
+                        if statedb[task][state['name']] == 'pending':
+                            break
+                        else:
+                            rc = 'pending'
+                    log.debug('Chaging ' + task + ' state ' + state['name'] + ' ' + statedb[task][state['name']] + ' -> ' + rc)
+                    statedb[task][state['name']] = rc
+                    state_update = True
+
+            # Check if default state is present and should be activated for current task
+            if 'default' in statedb[task]:
+                default = True
+                for name in statedb[task]:
+                    if name != 'default' and statedb[task][name] in ['pending', 'active']:
+                        default = False
+                        break
+                if default:
+                    if statedb[task]['default'] not in ['pending', 'active']:
+                        log.debug('Chaging ' + task + ' state default ' + statedb[task]['default'] + ' -> pending')
+                        statedb[task]['default'] = 'pending'
+                else: 
+                    if statedb[task]['default'] in ['pending', 'active']:
+                        log.debug('Chaging ' + task + ' state default ' + statedb[task]['default'] + ' -> inactive')
+                        statedb[task]['default'] = 'inactive'
 #        print(json.dumps(statedb, indent=2, sort_keys=True))
+        if state_update:
+            log.debug('Pending update')
         time.sleep(1)
 
 #    log.critical('Failed')
