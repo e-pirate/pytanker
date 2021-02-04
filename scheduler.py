@@ -193,7 +193,7 @@ def main():
         if condition['type'] == 'power':
             return(checkcond_power(condition))
 
-    # unknown -> inactive -> pending -> active
+    # unknown -> inactive -> scheduled -> pending -> active
     while True:
         state_update = False 
         for task in tasks:
@@ -207,10 +207,10 @@ def main():
                         break                                                                           # Stop checking conditions on first failure
                 if statedb[task][state['name']] != rc:
                     if rc == 'active':
-                        if statedb[task][state['name']] == 'pending':
+                        if statedb[task][state['name']] in ['scheduled', 'pending']:
                             break
                         else:
-                            rc = 'pending'
+                            rc = 'scheduled'
                     log.debug('Chaging ' + task + ' state ' + state['name'] + ' ' + statedb[task][state['name']] + ' -> ' + rc)
                     statedb[task][state['name']] = rc
                     state_update = True
@@ -219,15 +219,15 @@ def main():
             if 'default' in statedb[task]:
                 default = True
                 for name in statedb[task]:
-                    if name != 'default' and statedb[task][name] in ['pending', 'active']:
+                    if name != 'default' and statedb[task][name] in ['scheduled', 'pending', 'active']:
                         default = False
                         break
                 if default:
-                    if statedb[task]['default'] not in ['pending', 'active']:
-                        log.debug('Chaging ' + task + ' state default ' + statedb[task]['default'] + ' -> pending')
-                        statedb[task]['default'] = 'pending'
+                    if statedb[task]['default'] not in ['scheduled', 'pending' 'active']:
+                        log.debug('Chaging ' + task + ' state default ' + statedb[task]['default'] + ' -> scheduled')
+                        statedb[task]['default'] = 'scheduled'
                 else: 
-                    if statedb[task]['default'] in ['pending', 'active']:
+                    if statedb[task]['default'] in ['scheduled', 'pending' 'active']:
                         log.debug('Chaging ' + task + ' state default ' + statedb[task]['default'] + ' -> inactive')
                         statedb[task]['default'] = 'inactive'
 #        print(json.dumps(statedb, indent=2, sort_keys=True))
