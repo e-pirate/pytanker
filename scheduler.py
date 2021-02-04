@@ -40,7 +40,7 @@ def main():
     def setLogDestination(dst):
         if dst == 'console':
             handler = logging.StreamHandler()
-            handler.setFormatter(logging.Formatter(fmt='scheduler: (%(levelname).1s) %(message)s'))
+            handler.setFormatter(logging.Formatter(fmt='%(asctime)s.%(msecs)03d scheduler: (%(levelname).1s) %(message)s', datefmt="%H:%M:%S"))
         elif dst == 'syslog':
             handler = logging.handlers.SysLogHandler(facility=logging.handlers.SysLogHandler.LOG_DAEMON, address = '/dev/log')
             handler.setFormatter(logging.Formatter(fmt='scheduler[%(process)d]: (%(levelname).1s) %(message)s'))
@@ -71,28 +71,28 @@ def main():
     log.info('Starting scheduler v' + _version_ + '..')
     log.debug('Log level set to: ' + logging.getLevelName(log.level))
 
-    class MyResolver(BaseResolver):
+    class CustomResolver(BaseResolver):
         pass
 
-    MyResolver.add_implicit_resolver(
+    CustomResolver.add_implicit_resolver(
        u'tag:yaml.org,2002:bool',
        re.compile(u'''^(?:true|True|TRUE|false|False|FALSE)$''', re.X),
        list(u'tTfF'))
 
-    class MyLoader(Reader, Scanner, Parser, Composer, SafeConstructor, MyResolver):
+    class CustomLoader(Reader, Scanner, Parser, Composer, SafeConstructor, CustomResolver):
         def __init__(self, stream):
             Reader.__init__(self, stream)
             Scanner.__init__(self)
             Parser.__init__(self)
             Composer.__init__(self)
             SafeConstructor.__init__(self)
-            MyResolver.__init__(self)
+            CustomResolver.__init__(self)
 
     devices = {}
     for entry in os.scandir(config['devices']):
         if entry.is_file() and (entry.name.endswith(".yaml") or entry.name.endswith(".yml")):
             with open(entry.path) as f:
-                newdyaml = yaml.load(f, Loader=MyLoader)
+                newdyaml = yaml.load(f, Loader=CustomLoader)
             for newdev in newdyaml:
                 if newdev not in devices: # TODO: should be moved to pre check procedure
                     devices = {**devices, newdev: newdyaml[newdev]}
@@ -108,7 +108,7 @@ def main():
     for entry in os.scandir(config['tasks']):
         if entry.is_file() and (entry.name.endswith(".yaml") or entry.name.endswith(".yml")):
             with open(entry.path) as f:
-                newtyaml = yaml.load(f, Loader=MyLoader)
+                newtyaml = yaml.load(f, Loader=CustomLoader)
             for newtask in newtyaml:
                 if newtask not in tasks: # TODO: should be moved to pre check procedure
                     tasks = {**tasks, newtask: newtyaml[newtask]}
@@ -200,19 +200,19 @@ def main():
             for state in tasks[task]['states']:
                 if state['name'] == 'default':                                                          # Skip default state
                     continue
-                rc = 'active'
+                status = 'active'
                 for condition in state['conditions']:                                                   # Cycle through all conditions for the current state
                     if not checkcond(condition):                                                        # Check if current condition failed
-                        rc = 'inactive'
+                        status = 'inactive'
                         break                                                                           # Stop checking conditions on first failure
-                if statedb[task][state['name']] != rc:
-                    if rc == 'active':
+                if statedb[task][state['name']] != status:
+                    if status == 'active':
                         if statedb[task][state['name']] in ['scheduled', 'pending']:
                             break
                         else:
-                            rc = 'scheduled'
-                    log.debug('Chaging ' + task + ' state ' + state['name'] + ' ' + statedb[task][state['name']] + ' -> ' + rc)
-                    statedb[task][state['name']] = rc
+                            status = 'scheduled'
+                    log.debug('Chaging ' + task + ' state ' + state['name'] + ' ' + statedb[task][state['name']] + ' -> ' + status)
+                    statedb[task][state['name']] = status
                     state_update = True
 
             # Check if default state is present and should be activated for current task
@@ -232,7 +232,7 @@ def main():
                         statedb[task]['default'] = 'inactive'
 #        print(json.dumps(statedb, indent=2, sort_keys=True))
         if state_update:
-            log.debug('Pending update')
+            log.debug('State update is scheduled')
         time.sleep(1)
 
 #    log.critical('Failed')
