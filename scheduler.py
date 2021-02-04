@@ -137,9 +137,9 @@ def main():
 
 #    print(json.dumps(statedb, indent=2, sort_keys=True))
 
-#TODO: check if start is preore stop, duration < 1d + call check_cnd_time function and check for exceptions
 
     def checkcond_time(condition):
+#TODO: check if start is preore stop, duration < 1d + call check_cnd_time function and check for exceptions
         now = datetime.now()
 
         def srtstp2tddt(timestr):
@@ -195,6 +195,7 @@ def main():
 
     # unknown -> inactive -> scheduled -> pending -> active
     while True:
+        nextrun_uts = int(time.time()) + 1                                                              # Save round second for the next cycle to be run
         state_update = False 
         for task in tasks:
             for state in tasks[task]['states']:
@@ -231,9 +232,12 @@ def main():
                         log.debug('Chaging ' + task + ' state default ' + statedb[task]['default'] + ' -> inactive')
                         statedb[task]['default'] = 'inactive'
 #        print(json.dumps(statedb, indent=2, sort_keys=True))
+
         if state_update:
             log.debug('State update is scheduled')
-        time.sleep(1)
+
+        while not state_update and time.time() < nextrun_uts:                                           # Wait if no state updates scheduled or till next second
+            time.sleep(0.1)
 
 #    log.critical('Failed')
 
