@@ -17,9 +17,125 @@ import time
 import os
 import json
 from datetime import datetime, timedelta
+import asyncio
 
 _version_ = '0.0.1'
 _author_ = 'Artem Illarionov <e-pirate@mail.ru>'
+
+def checkcond_time(condition):
+#TODO: check if start is preore stop, duration < 1d + call check_cnd_time function and check for exceptions
+    now = datetime.now()
+
+    def srtstp2tddt(timestr):
+        if timestr.count(':') == 1:
+            return(datetime.combine(now.date(), datetime.strptime(timestr, "%H:%M").time()))
+        elif timestr.count(':') == 2:
+            return(datetime.combine(now.date(), datetime.strptime(timestr, "%H:%M:%S").time()))
+        raise ValueError
+
+    if 'stop' in condition and now > srtstp2tddt(condition['stop']):                                # stop time is set and we already passed it
+        return(False)
+
+    start = srtstp2tddt(condition['start'])
+
+    if 'duration' in condition:
+        duration = condition['duration'].lower()
+        hours = minutes = seconds = 0
+        if 'h' in duration:
+            hours, duration = duration.split('h')
+        if 'm' in duration:
+            minutes, duration = duration.split('m')
+        if 's' in duration:
+            seconds, duration = duration.split('s')
+        duration = timedelta(hours=int(hours), minutes=int(minutes), seconds=int(seconds))
+
+        if (start + duration).day <= now.day:                                                       # check if task ends today
+            if now > start + duration:                                                              # check if we already passed end time
+                return(False)
+        else:                                                                                       # task will end tomorrow
+            if start + duration - timedelta(days=1) < now < start:                                  # check if we already passed the remainig part of the end time
+                return(False)                                                                       # or did't reached start time yet
+            else:                                                                                   # we are still withing the remainig part of the end time
+                return(True)                                                                        # return True now, as we are still withing the remaining part
+
+    if now < start:                                                                                 # did not reached start time yet
+        return(False)
+
+    return(True)
+
+def checkcond_state(condition):
+    return(True)
+
+def checkcond_power(condition):
+    return(True)
+
+def checkcond(condition):
+    if condition['type'] == 'time':
+        return(checkcond_time(condition))
+    if condition['type'] == 'state':
+        return(checkcond_state(condition))
+    if condition['type'] == 'power':
+        return(checkcond_power(condition))
+
+# unknown -> inactive -> scheduled -> pending -> active
+async def task_loop(tasks, statedb):
+    log = logging.getLogger("__main__") 
+    log.info('Entering task event loop..')
+    while True:
+        log.debug('Task cycle')
+        nextrun_uts = int(time.time()) + 1                                                              # Save round second for the next cycle to be run
+        state_update = False 
+        for task in tasks:
+            for state in tasks[task]['states']:
+                if state['name'] == 'default':                                                          # Skip default state
+                    continue
+                status = 'active'
+                for condition in state['conditions']:                                                   # Cycle through all conditions for the current state
+                    if not checkcond(condition):                                                        # Check if current condition failed
+                        status = 'inactive'
+                        break                                                                           # Stop checking conditions on first failure
+                if statedb[task][state['name']] != status:
+                    if status == 'active':
+                        if statedb[task][state['name']] in ['scheduled', 'pending']:
+                            break
+                        else:
+                            status = 'scheduled'
+                    log.debug('Chaging ' + task + ' state ' + state['name'] + ' ' + statedb[task][state['name']] + ' -> ' + status)
+                    statedb[task][state['name']] = status
+                    state_update = True
+
+            # Check if default state is present and should be activated for current task
+            if 'default' in statedb[task]:
+                default = True
+                for name in statedb[task]:
+                    if name != 'default' and statedb[task][name] in ['scheduled', 'pending', 'active']:
+                        default = False
+                        break
+                if default:
+                    if statedb[task]['default'] not in ['scheduled', 'pending' 'active']:
+                        log.debug('Chaging ' + task + ' state default ' + statedb[task]['default'] + ' -> scheduled')
+                        statedb[task]['default'] = 'scheduled'
+                else: 
+                    if statedb[task]['default'] in ['scheduled', 'pending' 'active']:
+                        log.debug('Chaging ' + task + ' state default ' + statedb[task]['default'] + ' -> inactive')
+                        statedb[task]['default'] = 'inactive'
+#        print(json.dumps(statedb, indent=2, sort_keys=True))
+
+        if state_update:
+            log.debug('State update is scheduled')
+
+        if not state_update:
+            await asyncio.sleep(nextrun_uts - time.time())                                              # Wait if no state updates scheduled or till upcoming second
+
+async def state_loop():
+    log = logging.getLogger("__main__") 
+    log.info('Entering state event loop..')
+    while True:
+#        log.debug('State cycle')
+        await asyncio.sleep(0.5)
+
+async def main_loop(tasks, statedb):
+    await asyncio.gather(task_loop(tasks, statedb), state_loop())
 
 def main():
     parser = argparse.ArgumentParser(add_help=True, description='Aquarium scheduler and queue manager daemon.')
@@ -132,112 +248,10 @@ def main():
         sys.exit(1)
     log.info('Formed state DB for ' + str(len(statedb)) + ' tasks')
 
-
-    log.info('Entering main event loop..')
-
 #    print(json.dumps(statedb, indent=2, sort_keys=True))
 
 
-    def checkcond_time(condition):
-#TODO: check if start is preore stop, duration < 1d + call check_cnd_time function and check for exceptions
-        now = datetime.now()
-
-        def srtstp2tddt(timestr):
-            if timestr.count(':') == 1:
-                return(datetime.combine(now.date(), datetime.strptime(timestr, "%H:%M").time()))
-            elif timestr.count(':') == 2:
-                return(datetime.combine(now.date(), datetime.strptime(timestr, "%H:%M:%S").time()))
-            raise ValueError
-
-        if 'stop' in condition and now > srtstp2tddt(condition['stop']):                                # stop time is set and we already passed it
-            return(False)
-
-        start = srtstp2tddt(condition['start'])
-
-        if 'duration' in condition:
-            duration = condition['duration'].lower()
-            hours = minutes = seconds = 0
-            if 'h' in duration:
-                hours, duration = duration.split('h')
-            if 'm' in duration:
-                minutes, duration = duration.split('m')
-            if 's' in duration:
-                seconds, duration = duration.split('s')
-            duration = timedelta(hours=int(hours), minutes=int(minutes), seconds=int(seconds))
-
-            if (start + duration).day <= now.day:                                                       # check if task ends today
-                if now > start + duration:                                                              # check if we already passed end time
-                    return(False)
-            else:                                                                                       # task will end tomorrow
-                if start + duration - timedelta(days=1) < now < start:                                  # check if we already passed the remainig part of the end time
-                    return(False)                                                                       # or did't reached start time yet
-                else:                                                                                   # we are still withing the remainig part of the end time
-                    return(True)                                                                        # return True now, as we are still withing the remaining part
-
-        if now < start:                                                                                 # did not reached start time yet
-            return(False)
-
-        return(True)
-
-    def checkcond_state(condition):
-        return(True)
-
-    def checkcond_power(condition):
-        return(True)
-
-    def checkcond(condition):
-        if condition['type'] == 'time':
-            return(checkcond_time(condition))
-        if condition['type'] == 'state':
-            return(checkcond_state(condition))
-        if condition['type'] == 'power':
-            return(checkcond_power(condition))
-
-    # unknown -> inactive -> scheduled -> pending -> active
-    while True:
-        nextrun_uts = int(time.time()) + 1                                                              # Save round second for the next cycle to be run
-        state_update = False 
-        for task in tasks:
-            for state in tasks[task]['states']:
-                if state['name'] == 'default':                                                          # Skip default state
-                    continue
-                status = 'active'
-                for condition in state['conditions']:                                                   # Cycle through all conditions for the current state
-                    if not checkcond(condition):                                                        # Check if current condition failed
-                        status = 'inactive'
-                        break                                                                           # Stop checking conditions on first failure
-                if statedb[task][state['name']] != status:
-                    if status == 'active':
-                        if statedb[task][state['name']] in ['scheduled', 'pending']:
-                            break
-                        else:
-                            status = 'scheduled'
-                    log.debug('Chaging ' + task + ' state ' + state['name'] + ' ' + statedb[task][state['name']] + ' -> ' + status)
-                    statedb[task][state['name']] = status
-                    state_update = True
-
-            # Check if default state is present and should be activated for current task
-            if 'default' in statedb[task]:
-                default = True
-                for name in statedb[task]:
-                    if name != 'default' and statedb[task][name] in ['scheduled', 'pending', 'active']:
-                        default = False
-                        break
-                if default:
-                    if statedb[task]['default'] not in ['scheduled', 'pending' 'active']:
-                        log.debug('Chaging ' + task + ' state default ' + statedb[task]['default'] + ' -> scheduled')
-                        statedb[task]['default'] = 'scheduled'
-                else: 
-                    if statedb[task]['default'] in ['scheduled', 'pending' 'active']:
-                        log.debug('Chaging ' + task + ' state default ' + statedb[task]['default'] + ' -> inactive')
-                        statedb[task]['default'] = 'inactive'
-#        print(json.dumps(statedb, indent=2, sort_keys=True))
-
-        if state_update:
-            log.debug('State update is scheduled')
-
-        while not state_update and time.time() < nextrun_uts:                                           # Wait if no state updates scheduled or till next second
-            time.sleep(0.1)
+    asyncio.run(main_loop(tasks, statedb))
 
 #    log.critical('Failed')
 
