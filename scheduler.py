@@ -22,7 +22,7 @@ import asyncio
 _version_ = '0.0.1'
 _author_ = 'Artem Illarionov <e-pirate@mail.ru>'
 
-def checkcond_time(condition):
+def checkcond_time(condition: dict) -> bool:
 #TODO: check if start is preore stop, duration < 1d + call check_cnd_time function and check for exceptions
     now = datetime.now()
 
@@ -63,13 +63,13 @@ def checkcond_time(condition):
 
     return(True)
 
-def checkcond_state(condition):
+def checkcond_state(condition: str) -> bool:
     return(True)
 
-def checkcond_power(condition):
+def checkcond_power(condition: str) -> bool:
     return(True)
 
-def checkcond(condition):
+def checkcond(condition: str) -> bool:
     if condition['type'] == 'time':
         return(checkcond_time(condition))
     if condition['type'] == 'state':
@@ -77,12 +77,14 @@ def checkcond(condition):
     if condition['type'] == 'power':
         return(checkcond_power(condition))
 
+#TODO: возвращять из каждой функции, проверяющей таск true, если статус изменился, проверять если в очереди незавершенные задачи на прверку тасков. Если текущий
+# последний и хотябы один вернул истину, запустить еще один диспатчер проверки всех статусов, но без встроенного продолжателя
 # unknown -> inactive -> scheduled -> pending -> active
-async def task_loop(tasks, statedb):
+async def task_loop(tasks: dict, statedb: dict):
     log = logging.getLogger("__main__") 
     log.info('Entering task event loop..')
     while True:
-        log.debug('Task cycle')
+#        log.debug('Task cycle')
         nextrun_uts = int(time.time()) + 1                                                              # Save round second for the next cycle to be run
         state_update = False 
         for task in tasks:
