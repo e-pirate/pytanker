@@ -33,9 +33,9 @@ async def task_aftercheck(pending_tasks):
                                                                                                         # being terminated recursively by the canceled aftercheck
     if True in results:
         log.debug('All pending task checks finished, starting aftercheck: ' + str(results))
-        task_dispatcher(tasks)
+        task_dispatcher(tasks, asyncio.current_task())
 
-def task_dispatcher(tasks) -> int:
+def task_dispatcher(tasks, aftercheck_task=None) -> int:
     global dispatcher_lock
     log = logging.getLogger("__main__") 
 
@@ -63,12 +63,12 @@ def task_dispatcher(tasks) -> int:
     log.debug('Dispatcher finished: ' + str(len(pending_tasks)) + ' task check(s) pending, ' + str(len(spawned_tasks)) + ' task check(s) spawned') #: ' + str(statedb))
 
     if len(spawned_tasks) > 0:                                                                          # Lunch new aftercheck only if any new checks were spawned during this cycle
-        new_aftercheck = asyncio.create_task(task_aftercheck(pending_tasks + spawned_tasks))
-        
         for t in asyncio.all_tasks():                                                                   # Cancel all pending afterchecks excluding new one
-            if t._coro.__name__ == 'task_aftercheck' and t != new_aftercheck:
+            if t._coro.__name__ == 'task_aftercheck' and t != aftercheck_task:
                 t.cancel()
                 log.debug('Pending aftercheck canceled')
+
+        asyncio.create_task(task_aftercheck(pending_tasks + spawned_tasks))
 
     dispatcher_lock = False
     return len(spawned_tasks)
