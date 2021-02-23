@@ -142,6 +142,8 @@ async def main_loop(tasks, statedb):
 def main():
     parser = argparse.ArgumentParser(add_help=True, description='Aquarium scheduler and queue manager daemon.')
     parser.add_argument('-c', nargs='?', required=True, metavar='file', help='Scheduler configuration file in YAML format', dest='config')
+#TODO: Реализовать опцию проверки конфигурации
+    parser.add_argument('-t', nargs='?', metavar='test', help='Test devices and tasks according to specified configuration', dest='test')
     args = parser.parse_args()
 
     """ Load configuration from YAML """
