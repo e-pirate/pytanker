@@ -9,6 +9,7 @@ import logging
 import logging.handlers
 import random
 
+
 tasks = [ 'light', 'co2', 'dummy' ]
 statedb = { 'light': { 'isPending': False }, 'co2': { 'isPending': False }, 'dummy': { 'isPending': False } }
 dispatcher_lock = False
@@ -43,7 +44,7 @@ async def task_aftercheck(pending_tasks):
             log.debug('All pending task checks finished, no state changed')
 
 
-def task_dispatcher(tasks) -> int:
+def task_dispatcher(tasks):
     global dispatcher_lock
     log = logging.getLogger("__main__") 
 
@@ -62,13 +63,15 @@ def task_dispatcher(tasks) -> int:
 
     """ Spawn check for all tasks that are not currently been checked """
     spawned_tasks = []
+    pending_tasks_names = []
     for t in tasks:
         if statedb[t]['isPending']:
-            log.debug('Pending check for task ' + t + ' found, skipped')
+            pending_tasks_names.append(t)
             continue
         statedb[t]['isPending'] = True
         new_task = asyncio.create_task(task_check(t))
         spawned_tasks.append(new_task)
+    log.debug('Pending checks found for tasks that were skipped: ' + str(pending_tasks_names))
     log.debug('Dispatcher finished: ' + str(len(pending_tasks)) + ' task check(s) pending, ' + str(len(spawned_tasks)) + ' task check(s) spawned') #: ' + str(statedb))
 
     """ Spawn trailing aftercheck if new task checks were schedulled """
@@ -76,18 +79,18 @@ def task_dispatcher(tasks) -> int:
         for t in asyncio.all_tasks():                                                                   # Cancel all pending afterchecks, caller will be skipped
             if t._coro.__name__ == 'task_aftercheck':
                 t.cancel()
-
         asyncio.create_task(task_aftercheck(pending_tasks + spawned_tasks))
 
     dispatcher_lock = False
-    return len(spawned_tasks)
 
-async def tasks_loop(tasks):
+
+async def task_loop(tasks):
     log = logging.getLogger("__main__") 
     log.info('Entering task loop..')
     while True:
         task_dispatcher(tasks)
         await asyncio.sleep(int(time.time()) + 1 - time.time())                                         # Schedule check for the next round upcoming second
+
 
 #async def main_loop(tasks):
 #    await asyncio.gather(tasks_loop(tasks), tasks_loop(tasks))
@@ -103,7 +106,7 @@ def main():
     log.setLevel(logging.DEBUG)
     log.info('Starting asyncio test program')
 
-    asyncio.run(tasks_loop(tasks))
+    asyncio.run(task_loop(tasks))
 
 
 if __name__ == "__main__":
