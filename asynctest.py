@@ -50,10 +50,10 @@ def task_dispatcher(tasks):
 
     if dispatcher_lock:
         log.debug('Dispatcher is already active, skipping run')
-        return 0
+        return
 
     dispatcher_lock = True
-    log.debug('Dispatcher started') #: ' + str(statedb))
+    log.debug('Dispatcher started')
 
     """ Get list of the task checks that are still pending """
     pending_tasks = []
@@ -64,15 +64,15 @@ def task_dispatcher(tasks):
     """ Spawn check for all tasks that are not currently been checked """
     spawned_tasks = []
     pending_tasks_names = []
-    for t in tasks:
-        if statedb[t]['isPending']:
-            pending_tasks_names.append(t)
+    for tn in tasks:
+        if statedb[tn]['isPending']:
+            pending_tasks_names.append(tn)
             continue
-        statedb[t]['isPending'] = True
-        new_task = asyncio.create_task(task_check(t))
+        statedb[tn]['isPending'] = True
+        new_task = asyncio.create_task(task_check(tn))
         spawned_tasks.append(new_task)
     log.debug('Pending checks found for tasks that were skipped: ' + str(pending_tasks_names))
-    log.debug('Dispatcher finished: ' + str(len(pending_tasks)) + ' task check(s) pending, ' + str(len(spawned_tasks)) + ' task check(s) spawned') #: ' + str(statedb))
+    log.debug('Dispatcher finished: ' + str(len(pending_tasks)) + ' task check(s) pending, ' + str(len(spawned_tasks)) + ' task check(s) spawned')
 
     """ Spawn trailing aftercheck if new task checks were schedulled """
     if len(spawned_tasks) > 0:
