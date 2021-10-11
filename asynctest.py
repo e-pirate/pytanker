@@ -77,8 +77,9 @@ def task_dispatcher(tasks):
         statedb[tn]['isPending'] = True
         new_task = asyncio.create_task(task_check(tn))
         spawned_tasks.append(new_task)
-    log.debug('Pending checks found for tasks that were skipped: ' + str(pending_tasks_names))
-    log.debug('Dispatcher finished: ' + str(len(pending_tasks)) + ' task check(s) were pending, ' + str(len(spawned_tasks)) + ' task check(s) spawned')
+    if pending_tasks_names:
+        log.debug('Pending task(s) checks that were skipped: ' + str(pending_tasks_names))
+    log.debug('Dispatcher finished: ' + str(len(pending_tasks)) + ' task check(s) were pending, ' + str(len(spawned_tasks)) + ' new task check(s) spawned')
 
     """ Spawn trailing aftercheck if new task checks were schedulled """
     if len(spawned_tasks) > 0:
