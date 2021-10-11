@@ -6,6 +6,7 @@ import argparse
 import logging
 import logging.handlers
 import yaml
+import asyncio
 from yaml.composer import Composer
 from yaml.constructor import SafeConstructor
 from yaml.parser import Parser
@@ -17,7 +18,6 @@ import time
 import os
 import json
 from datetime import datetime, timedelta
-import asyncio
 
 _version_ = '0.0.1'
 _author_ = 'Artem Illarionov <e-pirate@mail.ru>'

@@ -19,13 +19,19 @@ async def task_check(task):
     log = logging.getLogger("__main__") 
     duration = random.randint(0, 2000) / 1000
     log.debug('Checking task: ' + task + ' (' + str(duration) + 's) started')
-    await asyncio.sleep(duration)
-    log.debug('Checking of task ' + task + ' finished')
-    statedb[task]['isPending'] = False
-    if random.randint(0, 10) < 5:
+    try:
+        await asyncio.sleep(duration)
+    except asyncio.CancelledError:
+        log.debug('Checking of task ' + task + ' cancelled')
+        statedb[task]['isPending'] = False
         return False
     else:
-        return True
+        log.debug('Checking of task ' + task + ' finished')
+        statedb[task]['isPending'] = False
+        if random.randint(0, 10) < 5:
+            return False
+        else:
+            return True
 
 
 async def task_aftercheck(pending_tasks):
@@ -72,7 +78,7 @@ def task_dispatcher(tasks):
         new_task = asyncio.create_task(task_check(tn))
         spawned_tasks.append(new_task)
     log.debug('Pending checks found for tasks that were skipped: ' + str(pending_tasks_names))
-    log.debug('Dispatcher finished: ' + str(len(pending_tasks)) + ' task check(s) pending, ' + str(len(spawned_tasks)) + ' task check(s) spawned')
+    log.debug('Dispatcher finished: ' + str(len(pending_tasks)) + ' task check(s) were pending, ' + str(len(spawned_tasks)) + ' task check(s) spawned')
 
     """ Spawn trailing aftercheck if new task checks were schedulled """
     if len(spawned_tasks) > 0:
@@ -89,7 +95,11 @@ async def task_loop(tasks):
     log.info('Entering task loop..')
     while True:
         task_dispatcher(tasks)
-        await asyncio.sleep(int(time.time()) + 1 - time.time())                                         # Schedule check for the next round upcoming second
+        try:
+            await asyncio.sleep(int(time.time()) + 1 - time.time())                                     # Schedule check for the next round upcoming second
+        except asyncio.CancelledError:
+            log.info('Shutting down task loop..')
+            break
 
 
 #async def main_loop(tasks):
@@ -106,7 +116,10 @@ def main():
     log.setLevel(logging.DEBUG)
     log.info('Starting asyncio test program')
 
-    asyncio.run(task_loop(tasks))
+    try:
+        asyncio.run(task_loop(tasks))
+    except KeyboardInterrupt:
+        log.info('Received keyboard interrup')
 
 
 if __name__ == "__main__":
