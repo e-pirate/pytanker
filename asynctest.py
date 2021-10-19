@@ -41,7 +41,7 @@ async def task_aftercheck(pending_tasks):
         results = []                                                                                    # Gathered coroutings should be shielded to keep them from
         results = await asyncio.shield(asyncio.gather(*pending_tasks))                                  # being terminated recursively by the canceled aftercheck
     except asyncio.CancelledError:
-        log.debug('Pending aftercheck canceled')
+        log.debug('Previosly pending aftercheck canceled')
     else:
         if True in results:
             log.debug('All pending task checks finished, starting aftercheck: ' + str(results))
@@ -83,7 +83,7 @@ def task_dispatcher(tasks):
 
     """ Spawn trailing aftercheck if new task checks were schedulled """
     if len(spawned_tasks) > 0:
-        for t in asyncio.all_tasks():                                                                   # Cancel all pending afterchecks, caller will be skipped
+        for t in asyncio.all_tasks():                                                                   # Cancel pending aftercheck, caller will be skipped
             if t._coro.__name__ == 'task_aftercheck':
                 t.cancel()
         asyncio.create_task(task_aftercheck(pending_tasks + spawned_tasks))
@@ -91,15 +91,16 @@ def task_dispatcher(tasks):
     dispatcher_lock = False
 
 
-async def task_loop(tasks):
+async def dispatcher_loop(tasks):
     log = logging.getLogger("__main__") 
-    log.info('Entering task loop..')
+    log.info('Entering dispatcher loop..')
+
     while True:
-        task_dispatcher(tasks)
         try:
+            task_dispatcher(tasks)
             await asyncio.sleep(int(time.time()) + 1 - time.time())                                     # Schedule check for the next round upcoming second
         except asyncio.CancelledError:
-            log.info('Shutting down task loop..')
+            log.info('Shutting down dispatcher loop..')
             break
 
 
@@ -118,9 +119,9 @@ def main():
     log.info('Starting asyncio test program')
 
     try:
-        asyncio.run(task_loop(tasks))
+        asyncio.run(dispatcher_loop(tasks))
     except KeyboardInterrupt:
-        log.info('Received keyboard interrup')
+        log.info('Received keyboard interrupt')
 
 
 if __name__ == "__main__":
