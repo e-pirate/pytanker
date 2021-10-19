@@ -2,11 +2,12 @@
 
 import sys
 import logging
+import logging.handlers
 import time
 import os
 import asyncio
-import logging
-import logging.handlers
+import functools
+import signal
 import random
 
 
@@ -45,12 +46,12 @@ async def task_aftercheck(pending_tasks):
     else:
         if True in results:
             log.debug('All pending task checks finished, starting aftercheck: ' + str(results))
-            task_dispatcher(tasks)
+            dispatcher(tasks)
         else:
             log.debug('All pending task checks finished, no state changed')
 
 
-def task_dispatcher(tasks):
+def dispatcher(tasks):
     global dispatcher_lock
     log = logging.getLogger("__main__") 
 
@@ -91,21 +92,35 @@ def task_dispatcher(tasks):
     dispatcher_lock = False
 
 
+def handler_shutdown(signame, loop):
+    log = logging.getLogger("__main__")
+    log.info("Got %s: cancelling all tasks and exiting.." % signame)
+
+    loop.stop()
+
+
+def handler_confupdate():
+    log = logging.getLogger("__main__")
+    log.info("Got SIGHUP: updating configuration files..")
+
+
 async def dispatcher_loop(tasks):
     log = logging.getLogger("__main__") 
     log.info('Entering dispatcher loop..')
 
+    """ Add signal handlers """
+    loop = asyncio.get_running_loop()
+    loop.add_signal_handler(getattr(signal, 'SIGINT'), functools.partial(handler_shutdown, 'SIGINT', loop))
+    loop.add_signal_handler(getattr(signal, 'SIGTERM'), functools.partial(handler_shutdown, 'SIGTERM', loop))
+    loop.add_signal_handler(getattr(signal, 'SIGHUP'), functools.partial(handler_confupdate))
+
     while True:
         try:
-            task_dispatcher(tasks)
+            dispatcher(tasks)
             await asyncio.sleep(int(time.time()) + 1 - time.time())                                     # Schedule check for the next round upcoming second
         except asyncio.CancelledError:
-            log.info('Shutting down dispatcher loop..')
+            log.info('Shutting down dispatcher loop')
             break
-
-
-#async def main_loop(tasks):
-#    await asyncio.gather(tasks_loop(tasks), tasks_loop(tasks))
 
 
 def main():
@@ -118,10 +133,7 @@ def main():
     log.setLevel(logging.DEBUG)
     log.info('Starting asyncio test program')
 
-    try:
-        asyncio.run(dispatcher_loop(tasks))
-    except KeyboardInterrupt:
-        log.info('Received keyboard interrupt')
+    asyncio.run(dispatcher_loop(tasks))
 
 
 if __name__ == "__main__":
