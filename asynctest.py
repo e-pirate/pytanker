@@ -84,19 +84,23 @@ def dispatcher(tasks):
 
     """ Spawn trailing aftercheck if new task checks were schedulled """
     if len(spawned_tasks) > 0:
-        for t in asyncio.all_tasks():                                                                   # Cancel pending aftercheck, caller will be skipped
+        for t in asyncio.all_tasks():                                                                   # Cancel pending aftercheck
             if t._coro.__name__ == 'task_aftercheck':
                 t.cancel()
-        asyncio.create_task(task_aftercheck(pending_tasks + spawned_tasks))
+        asyncio.create_task(task_aftercheck(pending_tasks + spawned_tasks))                             # Spawn new aftercheck for previosly pending and new tasks
 
     dispatcher_lock = False
 
 
 def handler_shutdown(signame, loop):
     log = logging.getLogger("__main__")
-    log.info("Got %s: cancelling all tasks and exiting.." % signame)
+    log.info("Got %s: exiting.." % signame)
 
-    loop.stop()
+    for t in asyncio.all_tasks():                                                                       # Terminate the dispatcher loop, pending aftercheck
+        if t._coro.__name__ == 'dispatcher_loop':                                                       # will be cancelled automatically
+            t.cancel()
+
+#    loop.stop()
 
 
 def handler_confupdate():
@@ -120,6 +124,9 @@ async def dispatcher_loop(tasks):
             await asyncio.sleep(int(time.time()) + 1 - time.time())                                     # Schedule check for the next round upcoming second
         except asyncio.CancelledError:
             log.info('Shutting down dispatcher loop')
+            for t in asyncio.all_tasks():                                                               # Cancel pending aftercheck
+                if t._coro.__name__ == 'task_aftercheck':
+                    t.cancel()
             break
 
 
