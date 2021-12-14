@@ -254,10 +254,11 @@ def main():
 
 #    print(json.dumps(statedb, indent=2, sort_keys=True))
 
-
     asyncio.run(main_loop(tasks, statedb))
 
 #    log.critical('Failed')
+
+    log.info('Shutting down scheduler v' + _version_ + '..')
 
     logging.shutdown()
 

@@ -10,6 +10,7 @@ import functools
 import signal
 import random
 
+_version_ = '0.2.1'
 
 tasks = [ 'light', 'co2', 'dummy' ]
 statedb = { 'light': { 'isPending': False }, 'co2': { 'isPending': False }, 'dummy': { 'isPending': False } }
@@ -42,7 +43,7 @@ async def task_aftercheck(pending_tasks):
         results = []                                                                                    # Gathered coroutings should be shielded to keep them from
         results = await asyncio.shield(asyncio.gather(*pending_tasks))                                  # being terminated recursively by the canceled aftercheck
     except asyncio.CancelledError:
-        log.debug('Previosly pending aftercheck canceled')
+        log.debug('Pending aftercheck canceled')
     else:
         if True in results:
             log.debug('All pending task checks finished, starting aftercheck: ' + str(results))
@@ -100,8 +101,6 @@ def handler_shutdown(signame, loop):
         if t._coro.__name__ == 'dispatcher_loop':                                                       # will be cancelled automatically
             t.cancel()
 
-#    loop.stop()
-
 
 def handler_confupdate():
     log = logging.getLogger("__main__")
@@ -138,9 +137,11 @@ def main():
     log.handlers.clear()
     log.addHandler(handler)
     log.setLevel(logging.DEBUG)
-    log.info('Starting asyncio test program')
+    log.info('Starting asyncio test program v' + _version_ + '..')
 
     asyncio.run(dispatcher_loop(tasks))
+
+    log.info('Shutting down scheduler v' + _version_ + '..')
 
 
 if __name__ == "__main__":
