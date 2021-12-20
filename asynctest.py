@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.9
+#!/usr/bin/env python3.10
 
 import sys
 import logging
@@ -136,10 +136,11 @@ async def dispatcher_loop(tasks):
             log.info('Shutting down dispatcher loop')
             pending_tasks = []
             for t in asyncio.all_tasks():                                                               # Cancel pending aftercheck
-                if t._coro.__name__ == 'task_check':
-                    pending_tasks.append(t)
-                elif t._coro.__name__ == 'task_aftercheck':
-                    t.cancel()
+                match t._coro.__name__:
+                    case 'task_check':
+                        pending_tasks.append(t)
+                    case 'task_aftercheck':
+                        t.cancel()
             await asyncio.shield(task_stopwait(pending_tasks))
 
             break
