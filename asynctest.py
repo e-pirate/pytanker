@@ -10,7 +10,7 @@ import functools
 import signal
 import random
 
-_version_ = '0.2.1'
+_version_ = '0.3.0'
 
 tasks = [ 'light', 'co2', 'dummy' ]
 statedb = { 'light': { 'isPending': False }, 'co2': { 'isPending': False }, 'dummy': { 'isPending': False } }
@@ -36,7 +36,7 @@ async def task_check(task):
             return True
 
 
-async def task_aftercheck(pending_tasks):
+async def tasks_aftercheck(pending_tasks):
     log = logging.getLogger("__main__") 
     log.debug('Aftercheck got ' + str(len(pending_tasks)) + ' task(s) to await for')
     try:
@@ -52,9 +52,9 @@ async def task_aftercheck(pending_tasks):
             log.debug('All pending task checks finished, no state changed')
 
 
-async def task_stopwait(pending_tasks):
+async def tasks_stopwait(pending_tasks):
     log = logging.getLogger("__main__")
-    log.debug('Waiting for ' + str(len(pending_tasks)) + ' task(s) to finish')
+    log.info('Waiting for ' + str(len(pending_tasks)) + ' task(s) to finish')
     try:
         await asyncio.shield(asyncio.gather(*pending_tasks))                                            # being terminated recursively by the canceled aftercheck
     except asyncio.CancelledError:
@@ -97,9 +97,9 @@ def dispatcher(tasks):
     """ Spawn trailing aftercheck if new task checks were schedulled """
     if len(spawned_tasks) > 0:
         for t in asyncio.all_tasks():                                                                   # Cancel pending aftercheck
-            if t._coro.__name__ == 'task_aftercheck':
+            if t._coro.__name__ == 'tasks_aftercheck':
                 t.cancel()
-        asyncio.create_task(task_aftercheck(pending_tasks + spawned_tasks))                             # Spawn new aftercheck for previosly pending and new tasks
+        asyncio.create_task(tasks_aftercheck(pending_tasks + spawned_tasks))                            # Spawn new aftercheck for previosly pending and new tasks
 
     dispatcher_lock = False
 
@@ -137,11 +137,12 @@ async def dispatcher_loop(tasks):
             pending_tasks = []
             for t in asyncio.all_tasks():                                                               # Cancel pending aftercheck
                 match t._coro.__name__:
+                    case 'tasks_aftercheck':
+                        t.cancel()
                     case 'task_check':
                         pending_tasks.append(t)
-                    case 'task_aftercheck':
-                        t.cancel()
-            await asyncio.shield(task_stopwait(pending_tasks))
+            if len(pending_tasks) > 0:
+                await asyncio.shield(tasks_stopwait(pending_tasks))
 
             break
 
