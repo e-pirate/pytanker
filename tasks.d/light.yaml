@@ -3,7 +3,7 @@ light:
     - name: on
       conditions:
         - type: time
-          start: 20:00
+          start: 10:00
           duration: 8h
         - type: power
           value: ac
