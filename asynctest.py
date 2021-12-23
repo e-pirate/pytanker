@@ -133,9 +133,9 @@ async def dispatcher_loop(tasks):
             dispatcher(tasks)
             await asyncio.sleep(int(time.time()) + 1 - time.time())                                     # Schedule check for the next round upcoming second
         except asyncio.CancelledError:
+            log.info('Shutting down dispatcher loop')
             break
 
-    log.info('Shutting down dispatcher loop')
     pending_tasks = []
     for t in asyncio.all_tasks():
         match t._coro.__name__:
