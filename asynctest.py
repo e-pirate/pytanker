@@ -56,11 +56,11 @@ async def tasks_stopwait(pending_tasks):
     log = logging.getLogger("__main__")
     log.info('Waiting for ' + str(len(pending_tasks)) + ' task(s) to finish')
     try:
-        await asyncio.shield(asyncio.gather(*pending_tasks))                                            # being terminated recursively by the canceled aftercheck
+        await asyncio.gather(*pending_tasks, return_exceptions=True)
     except asyncio.CancelledError:
-        log.debug('Active waiter canceled')
+        log.debug('Active waiter was canceled')
     else:
-        log.debug('All waiting task(s) finished')
+        log.info('All pending task(s) finished')
 
 
 def dispatcher(tasks):
@@ -133,18 +133,18 @@ async def dispatcher_loop(tasks):
             dispatcher(tasks)
             await asyncio.sleep(int(time.time()) + 1 - time.time())                                     # Schedule check for the next round upcoming second
         except asyncio.CancelledError:
-            log.info('Shutting down dispatcher loop')
-            pending_tasks = []
-            for t in asyncio.all_tasks():                                                               # Cancel pending aftercheck
-                match t._coro.__name__:
-                    case 'tasks_aftercheck':
-                        t.cancel()
-                    case 'task_check':
-                        pending_tasks.append(t)
-            if len(pending_tasks) > 0:
-                await asyncio.shield(tasks_stopwait(pending_tasks))
-
             break
+
+    log.info('Shutting down dispatcher loop')
+    pending_tasks = []
+    for t in asyncio.all_tasks():
+        match t._coro.__name__:
+            case 'tasks_aftercheck':                                                                    # Cancel pending aftercheck
+                t.cancel()
+            case 'task_check':
+                pending_tasks.append(t)
+    if len(pending_tasks) > 0:
+        await asyncio.shield(tasks_stopwait(pending_tasks))
 
 
 def main():
