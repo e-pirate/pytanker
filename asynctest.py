@@ -121,7 +121,7 @@ def handler_shutdown(signame, loop):
 
 def handler_confupdate():
     log = logging.getLogger("__main__")
-    log.info("Got SIGHUP: updating configuration files..")
+    log.info("Got SIGHUP: updating configuration..")
 
 
 async def dispatcher_loop(tasks):
@@ -153,7 +153,7 @@ async def dispatcher_loop(tasks):
         try:
             await asyncio.shield(tasks_stopwait(pending_tasks, timeout=1))
         except asyncio.CancelledError:
-            log.warning('StopWait cancelled') #FIXME message
+            log.warning('Graceful shutdown terminated, cancelling pending tasks')
 
 
 def main():
