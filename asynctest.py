@@ -56,17 +56,14 @@ async def tasks_stopwait(pending_tasks, timeout=1):
     log = logging.getLogger("__main__")
     log.info('Waiting ' + str(timeout) + 's for ' + str(len(pending_tasks)) + ' task(s) to finish')
     try:
-        try:
-            await asyncio.wait_for(asyncio.gather(*pending_tasks, return_exceptions=True), timeout)
-        except asyncio.TimeoutError:
-            log.warning('Some tasks were cancelled due to timeout')
-            return
-        except asyncio.CancelledError:
-            return
+        await asyncio.wait_for(asyncio.gather(*pending_tasks), timeout)
+    except asyncio.TimeoutError:
+        log.warning('Some tasks were cancelled due to timeout')
+        return
     except asyncio.CancelledError:
         return
     else:
-        log.info('All pending task(s) finished')
+        log.info('All pending tasks finished')
 
 
 def dispatcher(tasks):
