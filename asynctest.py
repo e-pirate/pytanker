@@ -24,7 +24,7 @@ async def task_check(task):
     try:
         await asyncio.sleep(duration)
     except asyncio.CancelledError:
-        log.debug('Checking of task ' + task + ' cancelled')
+        log.warning('Checking of task ' + task + ' cancelled')
         statedb[task]['isPending'] = False
         return False
     else:
@@ -41,24 +41,30 @@ async def tasks_aftercheck(pending_tasks):
     log.debug('Aftercheck got ' + str(len(pending_tasks)) + ' task(s) to await for')
     try:
         results = []                                                                                    # Gathered coroutings should be shielded to keep them from
-        results = await asyncio.shield(asyncio.gather(*pending_tasks))                                  # being terminated recursively by the canceled aftercheck
+        results = await asyncio.shield(asyncio.gather(*pending_tasks))                                  # being terminated recursively by the cancelled aftercheck
     except asyncio.CancelledError:
-        log.debug('Pending aftercheck canceled')
+        log.debug('Pending aftercheck cancelled')
     else:
         if True in results:
-            log.debug('All pending task checks finished, starting aftercheck: ' + str(results))
+            log.debug('All pending task checks finished, starting dispatcher: ' + str(results))
             dispatcher(tasks)
         else:
             log.debug('All pending task checks finished, no state changed')
 
 
-async def tasks_stopwait(pending_tasks):
+async def tasks_stopwait(pending_tasks, timeout=1):
     log = logging.getLogger("__main__")
-    log.info('Waiting for ' + str(len(pending_tasks)) + ' task(s) to finish')
+    log.info('Waiting ' + str(timeout) + 's for ' + str(len(pending_tasks)) + ' task(s) to finish')
     try:
-        await asyncio.gather(*pending_tasks, return_exceptions=True)
+        try:
+            await asyncio.wait_for(asyncio.gather(*pending_tasks, return_exceptions=True), timeout)
+        except asyncio.TimeoutError:
+            log.warning('Some tasks were cancelled due to timeout')
+            return
+        except asyncio.CancelledError:
+            return
     except asyncio.CancelledError:
-        log.debug('Active waiter was canceled')
+        return
     else:
         log.info('All pending task(s) finished')
 
@@ -144,7 +150,10 @@ async def dispatcher_loop(tasks):
             case 'task_check':
                 pending_tasks.append(t)
     if len(pending_tasks) > 0:
-        await asyncio.shield(tasks_stopwait(pending_tasks))
+        try:
+            await asyncio.shield(tasks_stopwait(pending_tasks, timeout=1))
+        except asyncio.CancelledError:
+            log.warning('StopWait cancelled') #FIXME message
 
 
 def main():
