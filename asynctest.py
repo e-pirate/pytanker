@@ -38,7 +38,7 @@ async def task_check(task):
 
 async def tasks_aftercheck(pending_tasks):
     log = logging.getLogger("__main__") 
-    log.debug('Aftercheck got ' + str(len(pending_tasks)) + ' task(s) to await for')
+    log.debug('Aftercheck got ' + str(len(pending_tasks)) + ' task(s) to wait for')
     try:
         results = []                                                                                    # Gathered coroutings should be shielded to keep them from
         results = await asyncio.shield(asyncio.gather(*pending_tasks))                                  # being terminated recursively by the cancelled aftercheck
