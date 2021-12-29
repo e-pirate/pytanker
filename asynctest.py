@@ -109,7 +109,7 @@ def dispatcher(tasks):
 
 def handler_shutdown(signame, loop):
     log = logging.getLogger("__main__")
-    log.info("Got %s: exiting.." % signame)
+    log.info("Received %s: exiting.." % signame)
 
     for t in asyncio.all_tasks():                                                                       # Terminate the dispatcher loop, pending aftercheck
         if t._coro.__name__ == 'dispatcher_loop':                                                       # will be cancelled automatically
@@ -118,7 +118,7 @@ def handler_shutdown(signame, loop):
 
 def handler_confupdate():
     log = logging.getLogger("__main__")
-    log.info("Got SIGHUP: updating configuration..")
+    log.info("Received SIGHUP: updating configuration..")
 
 
 async def dispatcher_loop(tasks):
