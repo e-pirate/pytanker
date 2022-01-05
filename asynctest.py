@@ -10,7 +10,7 @@ import functools
 import signal
 import random
 
-_version_ = '0.3.0'
+_version_ = '0.3.1'
 
 tasks = [ 'light', 'co2', 'dummy' ]
 statedb = { 'light': { 'isPending': False }, 'co2': { 'isPending': False }, 'dummy': { 'isPending': False } }
@@ -36,9 +36,42 @@ async def task_check(task):
             return True
 
 
+def handler_confupdate():
+    log = logging.getLogger("__main__")
+    log.info("Received SIGHUP: updating configuration..")
+
+
+def handler_shutdown(signame, loop):
+    log = logging.getLogger("__main__")
+    log.info("Received %s: exiting.." % signame)
+
+    for t in asyncio.all_tasks():                                                                       # Cancel the dispatcher loop, pending aftercheck
+        if t._coro.__name__ == 'dispatcher_loop':                                                       # will be cancelled automatically
+            t.cancel()
+
+
+async def tasks_stopwait(pending_tasks, timeout=1):
+    log = logging.getLogger("__main__")
+    log.info('Waiting ' + str(timeout) + 's for ' + str(len(pending_tasks)) + ' task(s) to finish')
+
+    group_task = asyncio.gather(*pending_tasks)
+    try:
+        await asyncio.wait_for(group_task, timeout)
+    except asyncio.TimeoutError:
+        log.warning('Some tasks were cancelled due to timeout')
+    except asyncio.CancelledError:
+        try:                                                                                            # awaiting for the group task and catching CancelledError
+            await group_task                                                                            # exception is needed to prevent
+        except asyncio.CancelledError:                                                                  # '_GatheringFuture exception was never retrieved' error
+            pass                                                                                        # in case of receiving multiple SIGINT/SIGTERM during shutdown
+    else:
+        log.info('All pending tasks finished')
+
+
 async def tasks_aftercheck(pending_tasks):
     log = logging.getLogger("__main__") 
     log.debug('Aftercheck got ' + str(len(pending_tasks)) + ' task(s) to wait for')
+
     try:
         results = []                                                                                    # Gathered coroutings should be shielded to keep them from
         results = await asyncio.shield(asyncio.gather(*pending_tasks))                                  # being terminated recursively by the cancelled aftercheck
@@ -50,20 +83,6 @@ async def tasks_aftercheck(pending_tasks):
             dispatcher(tasks)
         else:
             log.debug('All pending task checks finished, no state changed')
-
-
-async def tasks_stopwait(pending_tasks, timeout=1):
-    log = logging.getLogger("__main__")
-    log.info('Waiting ' + str(timeout) + 's for ' + str(len(pending_tasks)) + ' task(s) to finish')
-    try:
-        await asyncio.wait_for(asyncio.gather(*pending_tasks), timeout)
-    except asyncio.TimeoutError:
-        log.warning('Some tasks were cancelled due to timeout')
-        return
-    except asyncio.CancelledError:
-        return
-    else:
-        log.info('All pending tasks finished')
 
 
 def dispatcher(tasks):
@@ -107,20 +126,6 @@ def dispatcher(tasks):
     dispatcher_lock = False
 
 
-def handler_shutdown(signame, loop):
-    log = logging.getLogger("__main__")
-    log.info("Received %s: exiting.." % signame)
-
-    for t in asyncio.all_tasks():                                                                       # Terminate the dispatcher loop, pending aftercheck
-        if t._coro.__name__ == 'dispatcher_loop':                                                       # will be cancelled automatically
-            t.cancel()
-
-
-def handler_confupdate():
-    log = logging.getLogger("__main__")
-    log.info("Received SIGHUP: updating configuration..")
-
-
 async def dispatcher_loop(tasks):
     log = logging.getLogger("__main__") 
     log.info('Entering dispatcher loop..')
@@ -131,6 +136,7 @@ async def dispatcher_loop(tasks):
     loop.add_signal_handler(getattr(signal, 'SIGTERM'), functools.partial(handler_shutdown, 'SIGTERM', loop))
     loop.add_signal_handler(getattr(signal, 'SIGHUP'), functools.partial(handler_confupdate))
 
+    """ Main infinity dispatcher loop """
     while True:
         try:
             dispatcher(tasks)
@@ -139,16 +145,17 @@ async def dispatcher_loop(tasks):
             log.info('Shutting down dispatcher loop')
             break
 
+    """ Gracefull shutdown """
     pending_tasks = []
     for t in asyncio.all_tasks():
         match t._coro.__name__:
-            case 'tasks_aftercheck':                                                                    # Cancel pending aftercheck
+            case 'tasks_aftercheck':                                                                    # Cancel pending aftercheck ASAP
                 t.cancel()
-            case 'task_check':
+            case 'task_check':                                                                          # Collect active check tasks
                 pending_tasks.append(t)
     if len(pending_tasks) > 0:
         try:
-            await asyncio.shield(tasks_stopwait(pending_tasks, timeout=1))
+            await asyncio.shield(tasks_stopwait(pending_tasks, timeout=1))                              # Try to wait for tasks to finish during timeout seconds
         except asyncio.CancelledError:
             log.warning('Graceful shutdown terminated, cancelling pending tasks')
 
