@@ -91,10 +91,11 @@ def checkcond(condition: str) -> bool:
 async def task_loop(tasks: dict, statedb: dict):
     log = logging.getLogger("__main__") 
     log.info('Entering task event loop..')
+
     while True:
-#        log.debug('Task cycle')
         nextrun_uts = int(time.time()) + 1                                                              # Save round second for the next cycle to be run
         state_update = False 
+
         for task in tasks:
             for state in tasks[task]['states']:
                 if state['name'] == 'default':                                                          # Skip default state
@@ -142,11 +143,10 @@ async def state_loop():
     log = logging.getLogger("__main__") 
     log.info('Entering state event loop..')
     while True:
-#        log.debug('State cycle')
         await asyncio.sleep(0.5)
 
 
-async def main_loop(tasks, statedb):
+async def main_loop(tasks: dict, statedb: dict):
     await asyncio.gather(task_loop(tasks, statedb), state_loop())
 
 
@@ -165,7 +165,6 @@ def main():
         sys.exit('scheduler: (C) Failed to load config: ' + str(e.strerror) + ': \'' + str(e.filename) + '\'')
     except yaml.YAMLError as e:
         sys.exit('scheduler: (C) Failed to parse config: ' + str(e))
-
 
     """ Setup logging """
     def setLogDestination(dst):
@@ -203,6 +202,7 @@ def main():
     log.info('Starting scheduler v' + _version_ + '..')
     log.debug('Log level set to: ' + logging.getLevelName(log.level))
 
+    """ Configure custom resolver to treat various true/false string combinations as booleans """
     class CustomResolver(BaseResolver):
         pass
 
@@ -220,6 +220,7 @@ def main():
             SafeConstructor.__init__(self)
             CustomResolver.__init__(self)
 
+    """ Load devices """
     devices = {}
     for entry in os.scandir(config['devices']):
         if entry.is_file() and (entry.name.endswith(".yaml") or entry.name.endswith(".yml")):
@@ -232,10 +233,11 @@ def main():
                     log.error('Peripheral device: \'' + newdev + '\' already exist')
 
     if len(devices) == 0:
-        log.crit('No peripheral devices found, unable to continue')
+        log.critical('No peripheral devices found, unable to continue')
         sys.exit(1)
     log.info('Found ' + str(len(devices)) + ' peripheral device(s)')
 
+    """ Load tasks """
     tasks = {}
     for entry in os.scandir(config['tasks']):
         if entry.is_file() and (entry.name.endswith(".yaml") or entry.name.endswith(".yml")):
@@ -248,11 +250,11 @@ def main():
                     log.error('Task: \'' + newtask + '\' already exist')
 
     if len(tasks) == 0:
-        log.crit('No tasks found, unable to continue')
+        log.critical('No tasks found, unable to continue')
         sys.exit(1)
     log.info('Found ' + str(len(tasks)) + ' task(s)')
 
-    # Create an empty state DB from all task states
+    """ Generate an empty state DB from all task states """
     statedb = {}
     for task in tasks:
         statedb[task] = {}
@@ -260,15 +262,12 @@ def main():
             statedb[task][state['name']] = 'unknown'
 
     if len(statedb) == 0:
-        log.crit('Failed to form state DB, unable to continue')
+        log.critical('Failed to generate state DB, unable to continue')
         sys.exit(1)
-    log.info('Formed state DB for ' + str(len(statedb)) + ' tasks')
-
+    log.info('Generated state DB for ' + str(len(statedb)) + ' tasks')
 #    print(json.dumps(statedb, indent=2, sort_keys=True))
 
     asyncio.run(main_loop(tasks, statedb))
-
-#    log.critical('Failed')
 
     log.info('Shutting down scheduler v' + _version_ + '..')
 
