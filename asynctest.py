@@ -17,7 +17,7 @@ statedb = { 'light': { 'isPending': False }, 'co2': { 'isPending': False }, 'dum
 dispatcher_lock = False
 
 
-async def task_check(task):
+async def task_check(task: str) -> bool:
     log = logging.getLogger("__main__") 
     duration = random.randint(0, 2000) / 1000
     log.debug('Checking task: ' + task + ' (' + str(duration) + 's) started')
@@ -41,7 +41,7 @@ def handler_confupdate():
     log.info("Received SIGHUP: updating configuration..")
 
 
-def handler_shutdown(signame, loop):
+def handler_shutdown(signame: str, loop: asyncio.AbstractEventLoop):
     log = logging.getLogger("__main__")
     log.info("Received %s: exiting.." % signame)
 
@@ -50,7 +50,7 @@ def handler_shutdown(signame, loop):
             t.cancel()
 
 
-async def tasks_stopwait(pending_tasks, timeout=1):
+async def tasks_stopwait(pending_tasks: list, timeout: int = 1):
     log = logging.getLogger("__main__")
     log.info('Waiting ' + str(timeout) + 's for ' + str(len(pending_tasks)) + ' task(s) to finish')
 
@@ -68,7 +68,7 @@ async def tasks_stopwait(pending_tasks, timeout=1):
         log.info('All pending tasks finished')
 
 
-async def tasks_aftercheck(pending_tasks):
+async def tasks_aftercheck(pending_tasks: list):
     log = logging.getLogger("__main__") 
     log.debug('Aftercheck got ' + str(len(pending_tasks)) + ' task(s) to wait for')
 
@@ -85,7 +85,7 @@ async def tasks_aftercheck(pending_tasks):
             log.debug('All pending task checks finished, no state changed')
 
 
-def dispatcher(tasks):
+def dispatcher(tasks: list):
     global dispatcher_lock
     log = logging.getLogger("__main__") 
 
@@ -126,7 +126,7 @@ def dispatcher(tasks):
     dispatcher_lock = False
 
 
-async def dispatcher_loop(tasks):
+async def dispatcher_loop(tasks: list):
     log = logging.getLogger("__main__") 
     log.info('Entering dispatcher loop..')
 
