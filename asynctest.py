@@ -12,24 +12,24 @@ import random
 
 _version_ = '0.3.1'
 
-tasks = [ 'light', 'co2', 'dummy' ]
+jobs = { 'light': { 'duration': 1 }, 'co2': { 'duration': 1.5 }, 'dummy': { 'duration': 2 } }
 statedb = { 'light': { 'isPending': False }, 'co2': { 'isPending': False }, 'dummy': { 'isPending': False } }
 dispatcher_lock = False
 
 
-async def task_check(task: str) -> bool:
+async def task_check(job: str) -> bool:
     log = logging.getLogger("__main__") 
-    duration = random.randint(0, 2000) / 1000
-    log.debug('Checking task: ' + task + ' (' + str(duration) + 's) started')
+    duration = random.randint(0, int(jobs[job]['duration'] * 1000)) / 1000
+    log.debug('Checking task: ' + job + ' (' + str(duration) + 's) started')
     try:
         await asyncio.sleep(duration)
     except asyncio.CancelledError:
-        log.warning('Checking of task ' + task + ' cancelled')
-        statedb[task]['isPending'] = False
+        log.warning('Checking of task: ' + job + ' cancelled')
+        statedb[job]['isPending'] = False
         return False
     else:
-        log.debug('Checking of task ' + task + ' finished')
-        statedb[task]['isPending'] = False
+        log.debug('Checking of task: ' + job + ' finished')
+        statedb[job]['isPending'] = False
         if random.randint(0, 10) < 5:
             return False
         else:
@@ -79,13 +79,13 @@ async def tasks_aftercheck(pending_tasks: list):
         log.debug('Pending aftercheck cancelled')
     else:
         if True in results:
-            log.debug('All pending task checks finished, starting dispatcher: ' + str(results))
-            dispatcher(tasks)
+            log.debug('All pending tasks finished, starting dispatcher: ' + str(results))
+            dispatcher(jobs)
         else:
-            log.debug('All pending task checks finished, no state changed')
+            log.debug('All pending tasks finished, no state changed')
 
 
-def dispatcher(tasks: list):
+def dispatcher(jobs: dict):
     global dispatcher_lock
     log = logging.getLogger("__main__") 
 
@@ -104,20 +104,20 @@ def dispatcher(tasks: list):
 
     """ Spawn check for all tasks that are not currently been checked """
     spawned_tasks = []
-    pending_tasks_names = []
-    for tn in tasks:
-        if statedb[tn]['isPending']:
-            pending_tasks_names.append(tn)
+    pending_jobs = []
+    for job in jobs:
+        if statedb[job]['isPending']:
+            pending_jobs.append(job)
             continue
-        statedb[tn]['isPending'] = True
-        new_task = asyncio.create_task(task_check(tn))
+        statedb[job]['isPending'] = True
+        new_task = asyncio.create_task(task_check(job))
         spawned_tasks.append(new_task)
-    if pending_tasks_names:
-        log.debug('Pending task(s) checks that were skipped: ' + str(pending_tasks_names))
-    log.debug('Dispatcher finished: ' + str(len(pending_tasks)) + ' task check(s) were pending, ' + str(len(spawned_tasks)) + ' new task check(s) spawned')
+    if pending_jobs:
+        log.debug('Pending task(s) that were skipped: ' + str(pending_jobs))
+    log.debug('Dispatcher finished: ' + str(len(pending_tasks)) + ' task(s) were pending, ' + str(len(spawned_tasks)) + ' new task(s) spawned')
 
     """ Spawn trailing aftercheck if new task checks were schedulled """
-    if len(spawned_tasks) > 0:
+    if spawned_tasks:
         for t in asyncio.all_tasks():                                                                   # Cancel pending aftercheck
             if t._coro.__name__ == 'tasks_aftercheck':
                 t.cancel()
@@ -126,7 +126,7 @@ def dispatcher(tasks: list):
     dispatcher_lock = False
 
 
-async def dispatcher_loop(tasks: list):
+async def dispatcher_loop(jobs: dict):
     log = logging.getLogger("__main__") 
     log.info('Entering dispatcher loop..')
 
@@ -139,7 +139,7 @@ async def dispatcher_loop(tasks: list):
     """ Main infinity dispatcher loop """
     while True:
         try:
-            dispatcher(tasks)
+            dispatcher(jobs)
             await asyncio.sleep(int(time.time()) + 1 - time.time())                                     # Schedule check for the next round upcoming second
         except asyncio.CancelledError:
             log.info('Shutting down dispatcher loop')
@@ -153,7 +153,7 @@ async def dispatcher_loop(tasks: list):
                 t.cancel()
             case 'task_check':                                                                          # Collect active check tasks
                 pending_tasks.append(t)
-    if len(pending_tasks) > 0:
+    if pending_tasks:
         try:
             await asyncio.shield(tasks_stopwait(pending_tasks, timeout=1))                              # Try to wait for tasks to finish during timeout seconds
         except asyncio.CancelledError:
@@ -170,7 +170,7 @@ def main():
     log.setLevel(logging.DEBUG)
     log.info('Starting asyncio test program v' + _version_ + '..')
 
-    asyncio.run(dispatcher_loop(tasks))
+    asyncio.run(dispatcher_loop(jobs))
 
     log.info('Shutting down scheduler v' + _version_ + '..')
 

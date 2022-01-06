@@ -2,7 +2,7 @@ log:
   destination:  console
   level:        debug
 devices:        devices.d/
-tasks:          tasks.d/
+jobs:           jobs.d/
 statedb:        statedb.yaml
 controller:
   address:      localhost

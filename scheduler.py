@@ -52,10 +52,10 @@ def checkcond_time(condition: dict) -> bool:
             seconds, duration = duration.split('s')
         duration = timedelta(hours=int(hours), minutes=int(minutes), seconds=int(seconds))
 
-        if (start + duration).day <= now.day:                                                       # check if task ends today
+        if (start + duration).day <= now.day:                                                       # check if job ends today
             if now > start + duration:                                                              # check if we already passed end time
                 return(False)
-        else:                                                                                       # task will end tomorrow
+        else:                                                                                       # job will end tomorrow
             if start + duration - timedelta(days=1) < now < start:                                  # check if we already passed the remainig part of the end time
                 return(False)                                                                       # or did't reached start time yet
             else:                                                                                   # we are still withing the remainig part of the end time
@@ -88,16 +88,16 @@ def checkcond(condition: str) -> bool:
 #TODO: возвращять из каждой функции, проверяющей таск true, если статус изменился, проверять если в очереди незавершенные задачи на прверку тасков. Если текущий
 # последний и хотябы один вернул истину, запустить еще один диспатчер проверки всех статусов, но без встроенного продолжателя
 # unknown -> inactive -> scheduled -> pending -> active
-async def task_loop(tasks: dict, statedb: dict):
+async def task_loop(jobs: dict, statedb: dict):
     log = logging.getLogger("__main__") 
-    log.info('Entering task event loop..')
+    log.info('Entering job event loop..')
 
     while True:
         nextrun_uts = int(time.time()) + 1                                                              # Save round second for the next cycle to be run
         state_update = False 
 
-        for task in tasks:
-            for state in tasks[task]['states']:
+        for job in jobs:
+            for state in jobs[job]['states']:
                 if state['name'] == 'default':                                                          # Skip default state
                     continue
                 status = 'active'
@@ -105,31 +105,31 @@ async def task_loop(tasks: dict, statedb: dict):
                     if not checkcond(condition):                                                        # Check if current condition failed
                         status = 'inactive'
                         break                                                                           # Stop checking conditions on first failure
-                if statedb[task][state['name']] != status:
+                if statedb[job][state['name']] != status:
                     if status == 'active':
-                        if statedb[task][state['name']] in ['scheduled', 'pending']:
+                        if statedb[job][state['name']] in ['scheduled', 'pending']:
                             break
                         else:
                             status = 'scheduled'
-                    log.debug('Chaging ' + task + ' state \'' + state['name'] + '\': ' + statedb[task][state['name']] + ' -> ' + status)
-                    statedb[task][state['name']] = status
+                    log.debug('Chaging ' + job + ' state \'' + state['name'] + '\': ' + statedb[job][state['name']] + ' -> ' + status)
+                    statedb[job][state['name']] = status
                     state_update = True
 
-            # Check if default state is present and should be activated for current task
-            if 'default' in statedb[task]:
+            # Check if default state is present and should be activated for current job
+            if 'default' in statedb[job]:
                 default = True
-                for name in statedb[task]:
-                    if name != 'default' and statedb[task][name] in ['scheduled', 'pending', 'active']:
+                for name in statedb[job]:
+                    if name != 'default' and statedb[job][name] in ['scheduled', 'pending', 'active']:
                         default = False
                         break
                 if default:
-                    if statedb[task]['default'] not in ['scheduled', 'pending' 'active']:
-                        log.debug('Chaging ' + task + ' state \'default\': ' + statedb[task]['default'] + ' -> scheduled')
-                        statedb[task]['default'] = 'scheduled'
+                    if statedb[job]['default'] not in ['scheduled', 'pending' 'active']:
+                        log.debug('Chaging ' + job + ' state \'default\': ' + statedb[job]['default'] + ' -> scheduled')
+                        statedb[job]['default'] = 'scheduled'
                 else: 
-                    if statedb[task]['default'] in ['scheduled', 'pending' 'active']:
-                        log.debug('Chaging ' + task + ' state \'default\': ' + statedb[task]['default'] + ' -> inactive')
-                        statedb[task]['default'] = 'inactive'
+                    if statedb[job]['default'] in ['scheduled', 'pending' 'active']:
+                        log.debug('Chaging ' + job + ' state \'default\': ' + statedb[job]['default'] + ' -> inactive')
+                        statedb[job]['default'] = 'inactive'
 #        print(json.dumps(statedb, indent=2, sort_keys=True))
 
         if state_update:
@@ -146,15 +146,15 @@ async def state_loop():
         await asyncio.sleep(0.5)
 
 
-async def main_loop(tasks: dict, statedb: dict):
-    await asyncio.gather(task_loop(tasks, statedb), state_loop())
+async def main_loop(jobs: dict, statedb: dict):
+    await asyncio.gather(task_loop(jobs, statedb), state_loop())
 
 
 def main():
     parser = argparse.ArgumentParser(add_help=True, description='Aquarium scheduler and queue manager daemon.')
     parser.add_argument('-c', nargs='?', required=True, metavar='file', help='Scheduler configuration file in YAML format', dest='config')
 #TODO: Реализовать опцию проверки конфигурации
-    parser.add_argument('-t', nargs='?', metavar='test', help='Test devices and tasks according to specified configuration', dest='test')
+    parser.add_argument('-t', nargs='?', metavar='test', help='Test devices and jobs according to specified configuration', dest='test')
     args = parser.parse_args()
 
     """ Load configuration from YAML """
@@ -232,42 +232,42 @@ def main():
                 else:
                     log.error('Peripheral device: \'' + newdev + '\' already exist')
 
-    if len(devices) == 0:
+    if not devices:
         log.critical('No peripheral devices found, unable to continue')
         sys.exit(1)
     log.info('Found ' + str(len(devices)) + ' peripheral device(s)')
 
-    """ Load tasks """
-    tasks = {}
-    for entry in os.scandir(config['tasks']):
+    """ Load jobs """
+    jobs = {}
+    for entry in os.scandir(config['jobs']):
         if entry.is_file() and (entry.name.endswith(".yaml") or entry.name.endswith(".yml")):
             with open(entry.path) as f:
-                newtyaml = yaml.load(f, Loader=CustomLoader)
-            for newtask in newtyaml:
-                if newtask not in tasks: # TODO: should be moved to pre check procedure
-                    tasks = {**tasks, newtask: newtyaml[newtask]}
+                newjyaml = yaml.load(f, Loader=CustomLoader)
+            for newjob in newjyaml:
+                if newjob not in jobs: # TODO: should be moved to pre check procedure
+                    jobs = {**jobs, newjob: newjyaml[newjob]}
                 else:
-                    log.error('Task: \'' + newtask + '\' already exist')
+                    log.error('Job: \'' + newjob + '\' already exist')
 
-    if len(tasks) == 0:
-        log.critical('No tasks found, unable to continue')
+    if not jobs:
+        log.critical('No jobs found, unable to continue')
         sys.exit(1)
-    log.info('Found ' + str(len(tasks)) + ' task(s)')
+    log.info('Found ' + str(len(jobs)) + ' job(s)')
 
-    """ Generate an empty state DB from all task states """
+    """ Generate an empty state DB from all job states """
     statedb = {}
-    for task in tasks:
-        statedb[task] = {}
-        for state in tasks[task]['states']:
-            statedb[task][state['name']] = 'unknown'
+    for job in jobs:
+        statedb[job] = {}
+        for state in jobs[job]['states']:
+            statedb[job][state['name']] = 'unknown'
 
-    if len(statedb) == 0:
+    if not statedb:
         log.critical('Failed to generate state DB, unable to continue')
         sys.exit(1)
-    log.info('Generated state DB for ' + str(len(statedb)) + ' tasks')
+    log.info('Generated state DB for ' + str(len(statedb)) + ' jobs')
 #    print(json.dumps(statedb, indent=2, sort_keys=True))
 
-    asyncio.run(main_loop(tasks, statedb))
+    asyncio.run(main_loop(jobs, statedb))
 
     log.info('Shutting down scheduler v' + _version_ + '..')
 
