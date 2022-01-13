@@ -36,7 +36,7 @@ async def task_check(job: str) -> bool:
             return True
 
 
-def handler_confupdate():
+def handler_confupdate():                                                                               # ps aux | egrep 'python.*asynctest\.py' | awk '{ print $2 }' | xargs kill -1
     log = logging.getLogger("__main__")
     log.info("Received SIGHUP: updating configuration..")
 
@@ -90,7 +90,7 @@ def dispatcher(jobs: dict):
     log = logging.getLogger("__main__") 
 
     if dispatcher_lock:
-        log.debug('Dispatcher is already active, skipping run')
+        log.debug('Dispatcher lock is set, skipping run')
         return
 
     dispatcher_lock = True
