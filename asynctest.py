@@ -9,6 +9,7 @@ import asyncio
 import functools
 import signal
 import random
+from datetime import datetime, timedelta
 
 _version_ = '0.3.1'
 
@@ -36,10 +37,36 @@ async def task_check(job: str) -> bool:
             return True
 
 
-def handler_confupdate():                                                                               # ps aux | egrep 'python.*asynctest\.py' | awk '{ print $2 }' | xargs kill -1
+def handler_confupdate(signame: str):                                                                   # ps aux | egrep 'python.*asynctest\.py' | awk '{ print $2 }' | xargs kill -1
     log = logging.getLogger("__main__")
-    log.info("Received SIGHUP: updating configuration..")
+    log.info("Received %s: updating configuration.." % signame)
 
+    asyncio.create_task(conf_update())
+
+async def conf_update():
+    global dispatcher_lock
+    log = logging.getLogger("__main__")
+
+    update_start = datetime.now()
+
+    dispatcher_lock = True
+    log.debug("Dispatcher lock is set")
+
+    pending_tasks = []
+    for t in asyncio.all_tasks():
+        match t._coro.__name__:
+            case 'task_check':
+                pending_tasks.append(t)
+            case 'tasks_aftercheck':
+                t.cancel()
+    if pending_tasks:
+        try:
+            await asyncio.shield(tasks_stopwait(pending_tasks, timeout=None))                           # Try to wait for tasks to finish during timeout seconds
+        except asyncio.CancelledError:
+            log.warning('Config update terminated, cancelling pending tasks')
+
+    dispatcher_lock = False
+    log.debug("Dispatcher lock is unset")
 
 def handler_shutdown(signame: str, loop: asyncio.AbstractEventLoop):
     log = logging.getLogger("__main__")
@@ -52,7 +79,7 @@ def handler_shutdown(signame: str, loop: asyncio.AbstractEventLoop):
 
 async def tasks_stopwait(pending_tasks: list, timeout: int = 1):
     log = logging.getLogger("__main__")
-    log.info('Waiting ' + str(timeout) + 's for ' + str(len(pending_tasks)) + ' task(s) to finish')
+    log.info('Waiting ' + ['', str(timeout) + 's '][isinstance(timeout, int)] + 'for ' + str(len(pending_tasks)) + ' task(s) to finish')
 
     group_task = asyncio.gather(*pending_tasks)
     try:
@@ -134,7 +161,8 @@ async def dispatcher_loop(jobs: dict):
     loop = asyncio.get_running_loop()
     loop.add_signal_handler(getattr(signal, 'SIGINT'), functools.partial(handler_shutdown, 'SIGINT', loop))
     loop.add_signal_handler(getattr(signal, 'SIGTERM'), functools.partial(handler_shutdown, 'SIGTERM', loop))
-    loop.add_signal_handler(getattr(signal, 'SIGHUP'), functools.partial(handler_confupdate))
+    loop.add_signal_handler(getattr(signal, 'SIGHUP'), functools.partial(handler_confupdate, 'SIGHUP'))
+    loop.add_signal_handler(getattr(signal, 'SIGQUIT'), functools.partial(handler_confupdate, 'SIGQUIT')) # For debug purposes only
 
     """ Main infinity dispatcher loop """
     while True:
