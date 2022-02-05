@@ -20,8 +20,8 @@ import json
 from datetime import datetime, timedelta
 
 
-_version_ = '0.0.1'
-_author_ = 'Artem Illarionov <e-pirate@mail.ru>'
+_version_ = "0.0.1"
+_author_ = "Artem Illarionov <e-pirate@mail.ru>"
 
 
 def checkcond_time(condition: dict) -> bool:
@@ -89,12 +89,12 @@ def checkcond(condition: str) -> bool:
 # последний и хотябы один вернул истину, запустить еще один диспатчер проверки всех статусов, но без встроенного продолжателя
 # unknown -> inactive -> scheduled -> pending -> active
 async def task_loop(jobs: dict, statedb: dict):
-    log = logging.getLogger("__main__") 
-    log.info('Entering job event loop..')
+    log = logging.getLogger("__main__")
+    log.info("Entering job event loop..")
 
     while True:
         nextrun_uts = int(time.time()) + 1                                                              # Save round second for the next cycle to be run
-        state_update = False 
+        state_update = False
 
         for job in jobs:
             for state in jobs[job]['states']:
@@ -111,7 +111,7 @@ async def task_loop(jobs: dict, statedb: dict):
                             break
                         else:
                             status = 'scheduled'
-                    log.debug('Chaging ' + job + ' state \'' + state['name'] + '\': ' + statedb[job][state['name']] + ' -> ' + status)
+                    log.debug(f"Chaging {job} state {state['name']!r}: {statedb[job][state['name']]} -> {status}")
                     statedb[job][state['name']] = status
                     state_update = True
 
@@ -124,24 +124,24 @@ async def task_loop(jobs: dict, statedb: dict):
                         break
                 if default:
                     if statedb[job]['default'] not in ['scheduled', 'pending' 'active']:
-                        log.debug('Chaging ' + job + ' state \'default\': ' + statedb[job]['default'] + ' -> scheduled')
+                        log.debug(f"Chaging {job} state \'default\': {statedb[job]['default']} -> scheduled")
                         statedb[job]['default'] = 'scheduled'
-                else: 
+                else:
                     if statedb[job]['default'] in ['scheduled', 'pending' 'active']:
-                        log.debug('Chaging ' + job + ' state \'default\': ' + statedb[job]['default'] + ' -> inactive')
+                        log.debug(f"Chaging {job} state \'default\': {statedb[job]['default']} -> inactive")
                         statedb[job]['default'] = 'inactive'
 #        print(json.dumps(statedb, indent=2, sort_keys=True))
 
         if state_update:
-            log.debug('State update is scheduled')
+            log.debug("State update is scheduled")
 
         if not state_update:
             await asyncio.sleep(nextrun_uts - time.time())                                              # Wait if no state updates scheduled or till upcoming second
 
 
 async def state_loop():
-    log = logging.getLogger("__main__") 
-    log.info('Entering state event loop..')
+    log = logging.getLogger("__main__")
+    log.info("Entering state event loop..")
     while True:
         await asyncio.sleep(0.5)
 
@@ -151,10 +151,10 @@ async def main_loop(jobs: dict, statedb: dict):
 
 
 def main():
-    parser = argparse.ArgumentParser(add_help=True, description='Aquarium scheduler and queue manager daemon.')
-    parser.add_argument('-c', nargs='?', required=True, metavar='file', help='Scheduler configuration file in YAML format', dest='config')
+    parser = argparse.ArgumentParser(add_help=True, description="Aquarium scheduler and queue manager daemon.")
+    parser.add_argument('-c', nargs='?', required=True, metavar='file', help="Scheduler configuration file in YAML format", dest='config')
 #TODO: Реализовать опцию проверки конфигурации
-    parser.add_argument('-t', nargs='?', metavar='test', help='Test devices and jobs according to specified configuration', dest='test')
+    parser.add_argument('-t', nargs='?', metavar='test', help="Test devices and jobs according to specified configuration", dest='test')
     args = parser.parse_args()
 
     """ Load configuration from YAML """
@@ -162,9 +162,9 @@ def main():
         with open(args.config) as f:
             config = yaml.safe_load(f)
     except OSError as e:
-        sys.exit('scheduler: (C) Failed to load config: ' + str(e.strerror) + ': \'' + str(e.filename) + '\'')
+        sys.exit(f"scheduler: (C) Failed to load config: {e.strerror} : {e.filename!r}")
     except yaml.YAMLError as e:
-        sys.exit('scheduler: (C) Failed to parse config: ' + str(e))
+        sys.exit(f"scheduler: (C) Failed to parse config: {e}")
 
     """ Setup logging """
     def setLogDestination(dst):
@@ -188,19 +188,19 @@ def main():
     try:
         setLogDestination(config['log']['destination'].lower())
     except KeyError:
-        log.error('Failed to configure log: Destination is undefined. Failing over to syslog.')
+        log.error("Failed to configure log: Destination is undefined. Failing over to syslog.")
     except ValueError:
-        log.error('Failed to configure log: Unknown destination: \'' + config['log']['destination'] + '\'. Failing over to syslog.')
-     
+        log.error(f"Failed to configure log: Unknown destination: {config['log']['destination']!r}. Failing over to syslog.")
+
     try:
         log.setLevel(config['log']['level'].upper())
     except KeyError:
-        log.error('Failed to configure log: Log level is undefined. Failing over to info.')
+        log.error("Failed to configure log: Log level is undefined. Failing over to info.")
     except ValueError:
-        log.error('Failed to configure log: Unknown level: \'' + config['log']['level'] + '\'. Failing over to info.')
+        log.error(f"Failed to configure log: Unknown level: {config['log']['level']!r}. Failing over to info.")
 
-    log.info('Starting scheduler v' + _version_ + '..')
-    log.debug('Log level set to: ' + logging.getLevelName(log.level))
+    log.info(f"Starting scheduler v{_version_} ..")
+    log.debug(f"Log level set to: {logging.getLevelName(log.level)}")
 
     """ Configure custom resolver to treat various true/false string combinations as booleans """
     class CustomResolver(BaseResolver):
@@ -230,12 +230,12 @@ def main():
                 if newdev not in devices: # TODO: should be moved to pre check procedure
                     devices = {**devices, newdev: newdyaml[newdev]}
                 else:
-                    log.error('Peripheral device: \'' + newdev + '\' already exist')
+                    log.error(f"Peripheral device: {newdev!r} already exist")
 
     if not devices:
-        log.critical('No peripheral devices found, unable to continue')
+        log.critical("No peripheral devices found, unable to continue")
         sys.exit(1)
-    log.info('Found ' + str(len(devices)) + ' peripheral device(s)')
+    log.info(f"Found {str(len(devices))} peripheral device(s)")
 
     """ Load jobs """
     jobs = {}
@@ -247,12 +247,12 @@ def main():
                 if newjob not in jobs: # TODO: should be moved to pre check procedure
                     jobs = {**jobs, newjob: newjyaml[newjob]}
                 else:
-                    log.error('Job: \'' + newjob + '\' already exist')
+                    log.error(f"Job: {newjob!r} already exist")
 
     if not jobs:
-        log.critical('No jobs found, unable to continue')
+        log.critical("No jobs found, unable to continue")
         sys.exit(1)
-    log.info('Found ' + str(len(jobs)) + ' job(s)')
+    log.info(f"Found {str(len(jobs))} job(s)")
 
     """ Generate an empty state DB from all job states """
     statedb = {}
@@ -262,14 +262,14 @@ def main():
             statedb[job][state['name']] = 'unknown'
 
     if not statedb:
-        log.critical('Failed to generate state DB, unable to continue')
+        log.critical("Failed to generate state DB, unable to continue")
         sys.exit(1)
-    log.info('Generated state DB for ' + str(len(statedb)) + ' jobs')
+    log.info(f"Generated state DB for {str(len(statedb))} jobs")
 #    print(json.dumps(statedb, indent=2, sort_keys=True))
 
     asyncio.run(main_loop(jobs, statedb))
 
-    log.info('Shutting down scheduler v' + _version_ + '..')
+    log.info(f"Shutting down scheduler v{_version_} ..")
 
     logging.shutdown()
 
