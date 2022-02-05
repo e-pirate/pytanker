@@ -11,7 +11,7 @@ import signal
 import random
 from datetime import datetime, timedelta
 
-_version_ = '0.3.1'
+_version_ = "0.3.1"
 
 jobs = { 'light': { 'duration': 1 }, 'co2': { 'duration': 1.5 }, 'dummy': { 'duration': 2 } }
 statedb = { 'light': { 'isPending': False }, 'co2': { 'isPending': False }, 'dummy': { 'isPending': False } }
@@ -19,17 +19,17 @@ dispatcher_lock = False
 
 
 async def task_check(job: str) -> bool:
-    log = logging.getLogger("__main__") 
+    log = logging.getLogger("__main__")
     duration = random.randint(0, int(jobs[job]['duration'] * 1000)) / 1000
-    log.debug('Checking task: ' + job + ' (' + str(duration) + 's) started')
+    log.debug(f"Checking task: {job} ({duration}s) started")
     try:
         await asyncio.sleep(duration)
     except asyncio.CancelledError:
-        log.warning('Checking of task: ' + job + ' cancelled')
+        log.warning(f"Checking of task: {job} cancelled")
         statedb[job]['isPending'] = False
         return False
     else:
-        log.debug('Checking of task: ' + job + ' finished')
+        log.debug(f"Checking of task: {job} finished")
         statedb[job]['isPending'] = False
         if random.randint(0, 10) < 5:
             return False
@@ -39,7 +39,7 @@ async def task_check(job: str) -> bool:
 
 def handler_confupdate(signame: str):                                                                   # ps aux | egrep 'python.*asynctest\.py' | awk '{ print $2 }' | xargs kill -1
     log = logging.getLogger("__main__")
-    log.info("Received %s: updating configuration.." % signame)
+    log.info(f"Received {signame}: updating configuration..")
 
     asyncio.create_task(conf_update())
 
@@ -63,14 +63,14 @@ async def conf_update():
         try:
             await asyncio.shield(tasks_stopwait(pending_tasks, timeout=None))                           # Try to wait for tasks to finish during timeout seconds
         except asyncio.CancelledError:
-            log.warning('Config update terminated, cancelling pending tasks')
+            log.warning("Config update terminated, cancelling pending tasks")
 
     dispatcher_lock = False
     log.debug("Dispatcher lock is unset")
 
 def handler_shutdown(signame: str, loop: asyncio.AbstractEventLoop):
     log = logging.getLogger("__main__")
-    log.info("Received %s: exiting.." % signame)
+    log.info(f"Received {signame}: exiting..")
 
     for t in asyncio.all_tasks():                                                                       # Cancel the dispatcher loop, pending aftercheck
         if t._coro.__name__ == 'dispatcher_loop':                                                       # will be cancelled automatically
@@ -79,49 +79,49 @@ def handler_shutdown(signame: str, loop: asyncio.AbstractEventLoop):
 
 async def tasks_stopwait(pending_tasks: list, timeout: int = 1):
     log = logging.getLogger("__main__")
-    log.info('Waiting ' + ['', str(timeout) + 's '][isinstance(timeout, int)] + 'for ' + str(len(pending_tasks)) + ' task(s) to finish')
+    log.info(f"Waiting {['', str(timeout) + 's '][isinstance(timeout, int)]}for {len(pending_tasks)} task(s) to finish")
 
     group_task = asyncio.gather(*pending_tasks)
     try:
         await asyncio.wait_for(group_task, timeout)
     except asyncio.TimeoutError:
-        log.warning('Some tasks were cancelled due to timeout')
+        log.warning("Some tasks were cancelled due to timeout")
     except asyncio.CancelledError:
         try:                                                                                            # awaiting for the group task and catching CancelledError
             await group_task                                                                            # exception is needed to prevent
         except asyncio.CancelledError:                                                                  # '_GatheringFuture exception was never retrieved' error
             pass                                                                                        # in case of receiving multiple SIGINT/SIGTERM during shutdown
     else:
-        log.info('All pending tasks finished')
+        log.info("All pending tasks finished")
 
 
 async def tasks_aftercheck(pending_tasks: list):
-    log = logging.getLogger("__main__") 
-    log.debug('Aftercheck got ' + str(len(pending_tasks)) + ' task(s) to wait for')
+    log = logging.getLogger("__main__")
+    log.debug(f"Aftercheck got {len(pending_tasks)} task(s) to wait for")
 
     try:
         results = []                                                                                    # Gathered coroutings should be shielded to keep them from
         results = await asyncio.shield(asyncio.gather(*pending_tasks))                                  # being terminated recursively by the cancelled aftercheck
     except asyncio.CancelledError:
-        log.debug('Pending aftercheck cancelled')
+        log.debug("Pending aftercheck cancelled")
     else:
         if True in results:
-            log.debug('All pending tasks finished, starting dispatcher: ' + str(results))
+            log.debug(f"All pending tasks finished, starting dispatcher: {results}")
             dispatcher(jobs)
         else:
-            log.debug('All pending tasks finished, no state changed')
+            log.debug("All pending tasks finished, no state changed")
 
 
 def dispatcher(jobs: dict):
     global dispatcher_lock
-    log = logging.getLogger("__main__") 
+    log = logging.getLogger("__main__")
 
     if dispatcher_lock:
-        log.debug('Dispatcher lock is set, skipping run')
+        log.debug("Dispatcher lock is set, skipping run")
         return
 
     dispatcher_lock = True
-    log.debug('Dispatcher started')
+    log.debug("Dispatcher started")
 
     """ Get list of the task checks that are still pending """
     pending_tasks = []
@@ -140,8 +140,8 @@ def dispatcher(jobs: dict):
         new_task = asyncio.create_task(task_check(job))
         spawned_tasks.append(new_task)
     if pending_jobs:
-        log.debug('Pending task(s) that were skipped: ' + str(pending_jobs))
-    log.debug('Dispatcher finished: ' + str(len(pending_tasks)) + ' task(s) were pending, ' + str(len(spawned_tasks)) + ' new task(s) spawned')
+        log.debug(f"Pending task(s) that were skipped: {pending_jobs}")
+    log.debug(f"Dispatcher finished: {len(pending_tasks)} task(s) were pending, {len(spawned_tasks)} new task(s) spawned")
 
     """ Spawn trailing aftercheck if new task checks were schedulled """
     if spawned_tasks:
@@ -154,8 +154,8 @@ def dispatcher(jobs: dict):
 
 
 async def dispatcher_loop(jobs: dict):
-    log = logging.getLogger("__main__") 
-    log.info('Entering dispatcher loop..')
+    log = logging.getLogger("__main__")
+    log.info("Entering dispatcher loop..")
 
     """ Add signal handlers """
     loop = asyncio.get_running_loop()
@@ -170,7 +170,7 @@ async def dispatcher_loop(jobs: dict):
             dispatcher(jobs)
             await asyncio.sleep(int(time.time()) + 1 - time.time())                                     # Schedule check for the next round upcoming second
         except asyncio.CancelledError:
-            log.info('Shutting down dispatcher loop')
+            log.info("Shutting down dispatcher loop")
             break
 
     """ Gracefull shutdown """
@@ -185,7 +185,7 @@ async def dispatcher_loop(jobs: dict):
         try:
             await asyncio.shield(tasks_stopwait(pending_tasks, timeout=1))                              # Try to wait for tasks to finish during timeout seconds
         except asyncio.CancelledError:
-            log.warning('Graceful shutdown terminated, cancelling pending tasks')
+            log.warning("Graceful shutdown terminated, cancelling pending tasks")
 
 
 def main():
@@ -196,11 +196,11 @@ def main():
     log.handlers.clear()
     log.addHandler(handler)
     log.setLevel(logging.DEBUG)
-    log.info('Starting asyncio test program v' + _version_ + '..')
+    log.info(f"Starting asyncio test program v{_version_}..")
 
     asyncio.run(dispatcher_loop(jobs))
 
-    log.info('Shutting down scheduler v' + _version_ + '..')
+    log.info(f"Shutting down scheduler v{_version_}..")
 
 
 if __name__ == "__main__":
