@@ -111,7 +111,7 @@ async def task_loop(jobs: dict, statedb: dict):
                             break
                         else:
                             status = 'scheduled'
-                    log.debug(f"Chaging {job} state {state['name']!r}: {statedb[job][state['name']]} -> {status}")
+                    log.debug(f"Chaging {job} state '{state['name']}': {statedb[job][state['name']]} -> {status}")
                     statedb[job][state['name']] = status
                     state_update = True
 
@@ -124,11 +124,11 @@ async def task_loop(jobs: dict, statedb: dict):
                         break
                 if default:
                     if statedb[job]['default'] not in ['scheduled', 'pending' 'active']:
-                        log.debug(f"Chaging {job} state \'default\': {statedb[job]['default']} -> scheduled")
+                        log.debug(f"Chaging {job} state 'default': {statedb[job]['default']} -> scheduled")
                         statedb[job]['default'] = 'scheduled'
                 else:
                     if statedb[job]['default'] in ['scheduled', 'pending' 'active']:
-                        log.debug(f"Chaging {job} state \'default\': {statedb[job]['default']} -> inactive")
+                        log.debug(f"Chaging {job} state 'default': {statedb[job]['default']} -> inactive")
                         statedb[job]['default'] = 'inactive'
 #        print(json.dumps(statedb, indent=2, sort_keys=True))
 
@@ -162,7 +162,7 @@ def main():
         with open(args.config) as f:
             config = yaml.safe_load(f)
     except OSError as e:
-        sys.exit(f"scheduler: (C) Failed to load config: {e.strerror} : {e.filename!r}")
+        sys.exit(f"scheduler: (C) Failed to load config: {e.strerror} : '{e.filename}'")
     except yaml.YAMLError as e:
         sys.exit(f"scheduler: (C) Failed to parse config: {e}")
 
@@ -190,14 +190,14 @@ def main():
     except KeyError:
         log.error("Failed to configure log: Destination is undefined. Failing over to syslog.")
     except ValueError:
-        log.error(f"Failed to configure log: Unknown destination: {config['log']['destination']!r}. Failing over to syslog.")
+        log.error(f"Failed to configure log: Unknown destination: '{config['log']['destination']}'. Failing over to syslog.")
 
     try:
         log.setLevel(config['log']['level'].upper())
     except KeyError:
         log.error("Failed to configure log: Log level is undefined. Failing over to info.")
     except ValueError:
-        log.error(f"Failed to configure log: Unknown level: {config['log']['level']!r}. Failing over to info.")
+        log.error(f"Failed to configure log: Unknown level: '{config['log']['level']}'. Failing over to info.")
 
     log.info(f"Starting scheduler v{_version_} ..")
     log.debug(f"Log level set to: {logging.getLevelName(log.level)}")
@@ -230,12 +230,12 @@ def main():
                 if newdev not in devices: # TODO: should be moved to pre check procedure
                     devices = {**devices, newdev: newdyaml[newdev]}
                 else:
-                    log.error(f"Peripheral device: {newdev!r} already exist")
+                    log.error(f"Peripheral device: '{newdev}' already exist")
 
     if not devices:
         log.critical("No peripheral devices found, unable to continue")
         sys.exit(1)
-    log.info(f"Found {str(len(devices))} peripheral device(s)")
+    log.info(f"Found {len(devices)} peripheral device(s)")
 
     """ Load jobs """
     jobs = {}
@@ -247,12 +247,12 @@ def main():
                 if newjob not in jobs: # TODO: should be moved to pre check procedure
                     jobs = {**jobs, newjob: newjyaml[newjob]}
                 else:
-                    log.error(f"Job: {newjob!r} already exist")
+                    log.error(f"Job: '{newjob}' already exist")
 
     if not jobs:
         log.critical("No jobs found, unable to continue")
         sys.exit(1)
-    log.info(f"Found {str(len(jobs))} job(s)")
+    log.info(f"Found {len(jobs)} job(s)")
 
     """ Generate an empty state DB from all job states """
     statedb = {}
@@ -264,7 +264,7 @@ def main():
     if not statedb:
         log.critical("Failed to generate state DB, unable to continue")
         sys.exit(1)
-    log.info(f"Generated state DB for {str(len(statedb))} jobs")
+    log.info(f"Generated state DB for {len(statedb)} jobs")
 #    print(json.dumps(statedb, indent=2, sort_keys=True))
 
     asyncio.run(main_loop(jobs, statedb))
