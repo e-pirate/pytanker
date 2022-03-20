@@ -200,7 +200,7 @@ def main():
 
     asyncio.run(dispatcher_loop(jobs))
 
-    log.info(f"Shutting down scheduler v{_version_}..")
+    log.info(f"Shutting down asyncio test program v{_version_}..")
 
 
 if __name__ == "__main__":
