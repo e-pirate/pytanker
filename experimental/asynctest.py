@@ -11,11 +11,10 @@ import signal
 import random
 from datetime import datetime, timedelta
 
-_version_ = "0.3.1"
+_version_ = "0.3.2"
 
 jobs = { 'light': { 'duration': 1 }, 'co2': { 'duration': 1.5 }, 'dummy': { 'duration': 2 } }
 statedb = { 'light': { 'isPending': False }, 'co2': { 'isPending': False }, 'dummy': { 'isPending': False } }
-dispatcher_lock = False
 
 
 async def task_check(job: str) -> bool:
@@ -37,44 +36,46 @@ async def task_check(job: str) -> bool:
             return True
 
 
-def handler_confupdate(signame: str):                                                                   # ps aux | egrep 'python.*asynctest\.py' | awk '{ print $2 }' | xargs kill -1
+def handler_confupdate(signame: str, lock: asyncio.Lock()):                                             # ps aux | egrep 'python.*asynctest\.py' | awk '{ print $2 }' | xargs kill -1
     log = logging.getLogger("__main__")
     log.info(f"Received {signame}: updating configuration..")
 
-    asyncio.create_task(conf_update())
+    asyncio.create_task(conf_update(lock))
 
-async def conf_update():
-    global dispatcher_lock
+async def conf_update(lock: asyncio.Lock()):
     log = logging.getLogger("__main__")
 
     update_start = datetime.now()
 
-    dispatcher_lock = True
-    log.debug("Dispatcher lock is set")
+    async with lock:
+        log.debug("Dispatcher lock is set")
 
-    pending_tasks = []
-    for t in asyncio.all_tasks():
-        match t._coro.__name__:
-            case 'task_check':
-                pending_tasks.append(t)
-            case 'tasks_aftercheck':
-                t.cancel()
-    if pending_tasks:
-        try:
-            await asyncio.shield(tasks_stopwait(pending_tasks, timeout=None))                           # Try to wait for tasks to finish during timeout seconds
-        except asyncio.CancelledError:
-            log.warning("Config update terminated, cancelling pending tasks")
+        pending_tasks = []
+        for t in asyncio.all_tasks():
+            match t._coro.__name__:
+                case 'task_check':
+                    pending_tasks.append(t)
+                case 'tasks_aftercheck':
+                    t.cancel()
+        if pending_tasks:
+            try:
+                await asyncio.shield(tasks_stopwait(pending_tasks, timeout=None))                       # Try to wait for tasks to finish during timeout seconds
+                log.info("Performin configuration update")
+            except asyncio.CancelledError:
+                log.warning("Config update terminated, cancelling pending tasks")
 
-    dispatcher_lock = False
-    log.debug("Dispatcher lock is unset")
+        log.debug("Dispatcher lock is unset")
 
 def handler_shutdown(signame: str, loop: asyncio.AbstractEventLoop):
     log = logging.getLogger("__main__")
     log.info(f"Received {signame}: exiting..")
 
-    for t in asyncio.all_tasks():                                                                       # Cancel the dispatcher loop, pending aftercheck
-        if t._coro.__name__ == 'dispatcher_loop':                                                       # will be cancelled automatically
-            t.cancel()
+    for t in asyncio.all_tasks():
+        match t._coro.__name__:
+            case 'dispatcher_loop':                                                                     # Cancel the dispatcher loop, pending aftercheck
+                t.cancel()                                                                              # will be cancelled automatically
+            case 'conf_update':
+                t.cancel()
 
 
 async def tasks_stopwait(pending_tasks: list, timeout: int = 1):
@@ -113,14 +114,8 @@ async def tasks_aftercheck(pending_tasks: list):
 
 
 def dispatcher(jobs: dict):
-    global dispatcher_lock
     log = logging.getLogger("__main__")
 
-    if dispatcher_lock:
-        log.debug("Dispatcher lock is set, skipping run")
-        return
-
-    dispatcher_lock = True
     log.debug("Dispatcher started")
 
     """ Get list of the task checks that are still pending """
@@ -150,10 +145,8 @@ def dispatcher(jobs: dict):
                 t.cancel()
         asyncio.create_task(tasks_aftercheck(pending_tasks + spawned_tasks))                            # Spawn new aftercheck for previosly pending and new tasks
 
-    dispatcher_lock = False
 
-
-async def dispatcher_loop(jobs: dict):
+async def dispatcher_loop(jobs: dict, lock: asyncio.Lock()):
     log = logging.getLogger("__main__")
     log.info("Entering dispatcher loop..")
 
@@ -161,13 +154,18 @@ async def dispatcher_loop(jobs: dict):
     loop = asyncio.get_running_loop()
     loop.add_signal_handler(getattr(signal, 'SIGINT'), functools.partial(handler_shutdown, 'SIGINT', loop))
     loop.add_signal_handler(getattr(signal, 'SIGTERM'), functools.partial(handler_shutdown, 'SIGTERM', loop))
-    loop.add_signal_handler(getattr(signal, 'SIGHUP'), functools.partial(handler_confupdate, 'SIGHUP'))
-    loop.add_signal_handler(getattr(signal, 'SIGQUIT'), functools.partial(handler_confupdate, 'SIGQUIT')) # For debug purposes only (Ctrl-\)
+    loop.add_signal_handler(getattr(signal, 'SIGHUP'), functools.partial(handler_confupdate, 'SIGHUP', lock))
+    loop.add_signal_handler(getattr(signal, 'SIGQUIT'), functools.partial(handler_confupdate, 'SIGQUIT', lock)) # For debug purposes only (Ctrl-\)
 
     """ Main infinity dispatcher loop """
     while True:
         try:
-            dispatcher(jobs)
+            if not lock.locked():
+                async with lock:
+                    dispatcher(jobs)
+            else:
+                log.debug("Dispatcher lock is set, skipping run")
+
             await asyncio.sleep(int(time.time()) + 1 - time.time())                                     # Schedule check for the next round upcoming second
         except asyncio.CancelledError:
             log.info("Shutting down dispatcher loop")
@@ -189,6 +187,8 @@ async def dispatcher_loop(jobs: dict):
 
 
 def main():
+    dispatcher_lock = asyncio.Lock()
+
     """ Setup logging """
     handler = logging.StreamHandler()
     handler.setFormatter(logging.Formatter(fmt='%(asctime)s.%(msecs)03d asynctest: (%(levelname).1s) %(message)s', datefmt="%H:%M:%S"))
@@ -198,7 +198,7 @@ def main():
     log.setLevel(logging.DEBUG)
     log.info(f"Starting asyncio test program v{_version_}..")
 
-    asyncio.run(dispatcher_loop(jobs))
+    asyncio.run(dispatcher_loop(jobs, lock=dispatcher_lock))
 
     log.info(f"Shutting down asyncio test program v{_version_}..")
 
