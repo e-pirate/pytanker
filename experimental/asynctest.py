@@ -42,6 +42,7 @@ def handler_confupdate(signame: str, lock: asyncio.Lock()):                     
 
     asyncio.create_task(conf_update(lock))
 
+
 async def conf_update(lock: asyncio.Lock()):
     log = logging.getLogger("__main__")
 
@@ -58,13 +59,18 @@ async def conf_update(lock: asyncio.Lock()):
                 case 'tasks_aftercheck':
                     t.cancel()
         if pending_tasks:
+            sw_task = asyncio.create_task(tasks_stopwait(pending_tasks, timeout=3))                     # Try to wait for tasks to finish during timeout seconds
             try:
-                await asyncio.shield(tasks_stopwait(pending_tasks, timeout=None))                       # Try to wait for tasks to finish during timeout seconds
-                log.info("Performin configuration update")
+                await asyncio.shield(sw_task)
             except asyncio.CancelledError:
-                log.warning("Config update terminated, cancelling pending tasks")
+                log.warning("Configuration update cancelled")
+                sw_task.cancel()
+                return
+
+        log.info("Performin configuration update")
 
         log.debug("Dispatcher lock is unset")
+
 
 def handler_shutdown(signame: str, loop: asyncio.AbstractEventLoop):
     log = logging.getLogger("__main__")
@@ -83,8 +89,8 @@ async def tasks_stopwait(pending_tasks: list, timeout: int = 1):
     log.info(f"Waiting {['', str(timeout) + 's '][isinstance(timeout, int)]}for {len(pending_tasks)} task(s) to finish")
 
     group_task = asyncio.gather(*pending_tasks)
-    try:
-        await asyncio.wait_for(group_task, timeout)
+    try:                                                                                                # shielding prevents pending tasks from being cancelled
+        await asyncio.shield(asyncio.wait_for(group_task, timeout))                                     # if stopwait was cancelled from outside
     except asyncio.TimeoutError:
         log.warning("Some tasks were cancelled due to timeout")
     except asyncio.CancelledError:
