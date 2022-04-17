@@ -162,7 +162,7 @@ def main():
         with open(args.config) as f:
             config = yaml.safe_load(f)
     except OSError as e:
-        sys.exit(f"pytanler: (C) Failed to load config: {e.strerror} : '{e.filename}'")
+        sys.exit(f"pytanker: (C) Failed to load config: {e.strerror} : '{e.filename}'")
     except yaml.YAMLError as e:
         sys.exit(f"pytanker: (C) Failed to parse config: {e}")
 
