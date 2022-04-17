@@ -1,5 +1,5 @@
 #!/usr/bin/env python3.10
-# vim: lw=-c\ scheduler.yaml
+# vim: lw=-c\ pytanker.yaml
 
 import sys
 import argparse
@@ -153,28 +153,28 @@ async def main_loop(jobs: dict, statedb: dict):
 def main():
     parser = argparse.ArgumentParser(add_help=True, description="Aquarium scheduler and queue manager daemon.")
     parser.add_argument('-c', nargs='?', required=True, metavar='file', help="Scheduler configuration file in YAML format", dest='config')
-#TODO: Реализовать опцию проверки конфигурации
+    #TODO: Реализовать опцию проверки конфигурации
     parser.add_argument('-t', nargs='?', metavar='test', help="Test devices and jobs according to specified configuration", dest='test')
     args = parser.parse_args()
 
-    """ Load configuration from YAML """
+    """Load configuration from YAML"""
     try:
         with open(args.config) as f:
             config = yaml.safe_load(f)
     except OSError as e:
-        sys.exit(f"scheduler: (C) Failed to load config: {e.strerror} : '{e.filename}'")
+        sys.exit(f"pytanler: (C) Failed to load config: {e.strerror} : '{e.filename}'")
     except yaml.YAMLError as e:
-        sys.exit(f"scheduler: (C) Failed to parse config: {e}")
+        sys.exit(f"pytanker: (C) Failed to parse config: {e}")
 
-    """ Setup logging """
+    """Setup logging"""
     def setLogDestination(dst):
         match dst:
             case 'console':
                 handler = logging.StreamHandler()
-                handler.setFormatter(logging.Formatter(fmt='%(asctime)s.%(msecs)03d scheduler: (%(levelname).1s) %(message)s', datefmt="%H:%M:%S"))
+                handler.setFormatter(logging.Formatter(fmt='%(asctime)s.%(msecs)03d pytanker: (%(levelname).1s) %(message)s', datefmt="%H:%M:%S"))
             case 'syslog':
                 handler = logging.handlers.SysLogHandler(facility=logging.handlers.SysLogHandler.LOG_DAEMON, address = '/dev/log')
-                handler.setFormatter(logging.Formatter(fmt='scheduler[%(process)d]: (%(levelname).1s) %(message)s'))
+                handler.setFormatter(logging.Formatter(fmt='pytanker[%(process)d]: (%(levelname).1s) %(message)s'))
             case _:
                 raise ValueError
         log.handlers.clear()
@@ -199,10 +199,10 @@ def main():
     except ValueError:
         log.error(f"Failed to configure log: Unknown level: '{config['log']['level']}'. Failing over to info.")
 
-    log.info(f"Starting scheduler v{_version_} ..")
+    log.info(f"Starting pytanker v{_version_} ..")
     log.debug(f"Log level set to: {logging.getLevelName(log.level)}")
 
-    """ Configure custom resolver to treat various true/false string combinations as booleans """
+    """Configure custom resolver to treat various true/false string combinations as booleans"""
     class CustomResolver(BaseResolver):
         pass
 
@@ -220,7 +220,7 @@ def main():
             SafeConstructor.__init__(self)
             CustomResolver.__init__(self)
 
-    """ Load devices """
+    """Load devices"""
     devices = {}
     for entry in os.scandir(config['devices']):
         if entry.is_file() and (entry.name.endswith(".yaml") or entry.name.endswith(".yml")):
@@ -237,7 +237,7 @@ def main():
         sys.exit(1)
     log.info(f"Found {len(devices)} peripheral device(s)")
 
-    """ Load jobs """
+    """Load jobs"""
     jobs = {}
     for entry in os.scandir(config['jobs']):
         if entry.is_file() and (entry.name.endswith(".yaml") or entry.name.endswith(".yml")):
@@ -254,7 +254,7 @@ def main():
         sys.exit(1)
     log.info(f"Found {len(jobs)} job(s)")
 
-    """ Generate an empty state DB from all job states """
+    """Generate an empty state DB from all job states"""
     statedb = {}
     for job in jobs:
         statedb[job] = {}
@@ -269,7 +269,7 @@ def main():
 
     asyncio.run(main_loop(jobs, statedb))
 
-    log.info(f"Shutting down scheduler v{_version_} ..")
+    log.info(f"Shutting down pytanker v{_version_} ..")
 
     logging.shutdown()
 
