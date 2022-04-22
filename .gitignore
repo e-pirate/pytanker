@@ -1,2 +1,3 @@
+.gitignore
 devices.d/*.bak
 tasks.d/*.*
