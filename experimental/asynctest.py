@@ -220,6 +220,7 @@ async def dispatcher_loop(jobs: dict, lock: asyncio.Lock(), queue: asyncio.Queue
             await asyncio.shield(tasks_stopwait(pending_tasks, timeout=1))                              # Try to wait for tasks to finish during timeout seconds
         except asyncio.CancelledError:
             log.warning("Graceful shutdown terminated, cancelling pending checks")
+    log.info("Dispatcher loop is stopped")
 
 
 async def worker(queue: asyncio.Queue(), ql_task: asyncio.Task, num: int):
@@ -255,38 +256,48 @@ async def worker(queue: asyncio.Queue(), ql_task: asyncio.Task, num: int):
     asyncio.current_task().idling = True
 
 
-async def queue_loop(queue: asyncio.Queue(), workers_cnt: int = 2):
+async def queue_loop(queue: asyncio.Queue(), workers: int = 2):
     log = logging.getLogger("__main__")
-    log.info(f"Starting queue with {workers_cnt} worker(s) spawned..")
+    log.info(f"Starting queue with {workers} worker(s) spawned..")
 
     asyncio.current_task().stopping = False
 
-    workers = []
-    for _ in range(workers_cnt):
-        workers.append(asyncio.create_task(worker(queue=queue, ql_task=asyncio.current_task(), num=_)))
+    brigade = []
+    for _ in range(workers):
+        brigade.append(asyncio.create_task(worker(queue=queue, ql_task=asyncio.current_task(), num=_)))
 
     try:
-        await asyncio.shield(asyncio.gather(*workers))
+        await asyncio.shield(asyncio.gather(*brigade))
     except asyncio.CancelledError:
-        qsize = queue.qsize()
-        log.info(f"Shutting down queue with {qsize} unprocessed item(s)")
-        asyncio.current_task().stopping = True
+        """Gracefull shutdown"""
+        log.info(f"Shutting down queue loop")
+        dpl = None
         for _ in asyncio.all_tasks():
             if _._coro.__name__ in ['queue_aftercheck']:
                 _.cancel()
-        for _ in reversed(range(len(workers))):
-            if workers[_].idling:
-                if qsize > 0:                                                                               # Skip an idling worker so it can pick up a job from queue
-                    qsize -= 1                                                                              # without needing to wait for a busy worker to become free
-                    continue
-                workers[_].cancel()
-                del workers[_]
-        if workers:
-            log.debug(f"{len(workers)} workers still processing jobs")
+        #TODO: wait for all checks to complete
+            if _._coro.__name__ == 'dispatcher_loop':
+                dpl = _
+        if dpl:
+            log.debug("Waiting for dispatcher loop to finish")
             try:
-                await asyncio.shield(tasks_stopwait(workers, timeout=2))                                    # Try to wait for workers to complete theris tasks during timeout seconds
+                await asyncio.shield(asyncio.wait_for(dpl, timeout=1))                                  # Try to wait for workers to complete theris tasks during timeout seconds
             except asyncio.CancelledError:
-                log.warning("Graceful shutdown terminated, cancelling pending workers")
+                log.warning("DPL terminated")
+            else:
+                log.debug("Dispatcher loop finished, stopping queue")
+        asyncio.current_task().stopping = True
+        for _ in reversed(range(len(brigade))):
+            if brigade[_].idling:
+                brigade[_].cancel()
+                del brigade[_]
+        if brigade:
+            log.debug(f"{len(brigade)} worker(s) still processing jobs")
+            try:
+                await asyncio.shield(tasks_stopwait(brigade, timeout=2))                                # Try to wait for workers to complete theris tasks during timeout seconds
+            except asyncio.CancelledError:
+                log.warning("Graceful shutdown terminated, cancelling all workers")
+    log.info("Queue is stopped")
 
 
 async def main_loop(jobs: dict):
