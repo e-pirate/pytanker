@@ -172,6 +172,8 @@ async def sender_loop(ser):
 #        log.error(f"Failed to open serial device")
 #        sys.exit(1)
 
+#TODO: use aioserial 1.3.1
+
     """ Main infinity sender loop """
     while True:
         try:
