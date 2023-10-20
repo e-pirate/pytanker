@@ -85,8 +85,6 @@ def checkcond(condition: str) -> bool:
             return(checkcond_power(condition))
 
 
-#TODO: возвращять из каждой функции, проверяющей таск true, если статус изменился, проверять если в очереди незавершенные задачи на прверку тасков. Если текущий
-# последний и хотябы один вернул истину, запустить еще один диспатчер проверки всех статусов, но без встроенного продолжателя
 # unknown -> inactive -> scheduled -> pending -> active
 async def task_loop(jobs: dict, statedb: dict):
     log = logging.getLogger("__main__")
