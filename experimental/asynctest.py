@@ -67,7 +67,7 @@ async def async_shutdown():
                 dispatcherloop_t = _
             case 'queue_loop':
                 queueloop_t = _
-            case 'queue_recheck' | 'conf_update':
+            case 'conf_update':
                 _.cancel()
 
     if dispatcherloop_t:
@@ -112,7 +112,7 @@ async def conf_update(lock: asyncio.Lock()):
         pending_checks = []
         for _ in asyncio.all_tasks():
             match _._coro.__name__:
-                case 'tasks_aftercheck':                                                                # Cancel pending aftercheck to prevent new checks
+                case 'aftercheck':                                                                      # Cancel pending aftercheck to prevent new checks
                     _.cancel()                                                                          # from spawning during configuration update
                 case 'task_check':
                     pending_checks.append(_)
@@ -155,56 +155,45 @@ async def tasks_stopwait(pending_tasks: list, timeout: int = 1, msg: str = 'task
     return result
 
 
-async def queue_recheck(jobs: dict, queue: asyncio.Queue()):
-    """Wait for workers to preccess all jobs and run dispatcher if there were state change"""
+async def aftercheck(pending_checks: list, jobs: dict, queue: asyncio.Queue()) -> bool:
     log = logging.getLogger("__main__")
 
-    if log.getEffectiveLevel() == logging.DEBUG:
-        wt = wb = 0
-        for _ in asyncio.all_tasks():
-            if  _._coro.__name__ == 'worker':
-               wt+=1
-               if not _.idling:
-                   wb+=1
-        log.debug(f"Queue recheck activated: {queue.qsize()} item(s) waiting in queue, {wb}/{wt} worker(s) busy, recheck flag is {['clear', 'set'][queue.recheck]}")
-
-    try:
-        await queue.join()
-    except asyncio.CancelledError:
-        log.debug("Pending queue recheck cancelled")
-    else:
-        log.debug(f"Queue is empty, state{[' not', ''][queue.recheck]} changed")
-        if queue.recheck:
-            dispatcher(jobs, queue)
-
-
-async def tasks_aftercheck(pending_checks: list, jobs: dict, queue: asyncio.Queue()):
-    """First wait for all pending check tasks to complete. If queue recheck happen to start dispatcher
+    """First wait for all pending check tasks to complete. If aftercheck happen to start dispatcher
     before so, unfinished checks may complete with state update after dispatcher run and this updates will
-    not be taken into account until next dispatcher cycle. After all checks completed it's possible to
-    determine if queue recheck should be activated depending on:
-    1. any of check tasks returned True indicating there was a planned state update that may or may not
-    been already processed by worker possibly resulting in state change;
-    2. queue isn't empty which can lead to state change in future, so we should wait for workers to process
-    the queue until it's finally empty and then check for state changes;
-    3. recheck flag is set indicating there were an actual state change;
-    4. one or more busy workers may cause state change while all checks are completed with no planned state
-    update and queue is currently empty;
+    not be taken into account until next dispatcher cycle.
     """
-    log = logging.getLogger("__main__")
     log.debug(f"Aftercheck got {len(pending_checks)} checks(s) to wait for")
-
-    results = []
     try:                                                                                                # Gathered coroutings should be shielded to keep them from
-        results = await asyncio.shield(asyncio.gather(*pending_checks))                                 # being terminated recursively by the cancelled aftercheck
+        await asyncio.shield(asyncio.gather(*pending_checks))                                           # being terminated recursively by the cancelled aftercheck
     except asyncio.CancelledError:
         log.debug("Pending aftercheck cancelled")
+        return False
+
+    """Second insure that queue is empty and all workers completed processing jobs by calling queue.join()
+    that will unblock only after worker processing the last item from the queue is done and update the flag.
+    """
+    busy_workers = 0
+    for _ in queue.brigade:
+        if not _.idling:
+            busy_workers += 1
+    if queue.qsize() > 0 or busy_workers > 0:
+        log.debug(f"Aftercheck waiting for {queue.qsize()} item(s) in queue and {busy_workers} worker(s) to complete, flag is {['clear', 'set'][queue.aftercheck]}")
+        try:
+            await asyncio.shield(queue.join())
+        except asyncio.CancelledError:
+            log.debug("Pending aftercheck cancelled")
+            return False
+
+    """If aftercheck flag is set by any of the workers indicating there were an actual state change we
+    should run dispatcher to check for any upcoming updates.
+    """
+    if queue.aftercheck:
+        log.debug("All pending jobs completed, state changed, launching dispatcher")
+        dispatcher(jobs, queue)
+        return False
     else:
-        if True in results or not queue.empty() or queue.recheck: #FIXME: any busy worker should also trigger queue recheck!
-            log.debug(f"All pending checks completed, recheck condition(s) met, spawning queue recheck")
-            asyncio.create_task(queue_recheck(jobs, queue))
-        else:
-            log.debug("All pending checks completed, state not changed")
+        log.debug("All pending jobs completed, state not changed")
+        return True
 
 
 def dispatcher(jobs: dict, queue: asyncio.Queue()):
@@ -212,9 +201,9 @@ def dispatcher(jobs: dict, queue: asyncio.Queue()):
 
     log.debug("Dispatcher started")
 
-    if queue.recheck:
-        queue.recheck = False                                                                           # Clear recheck flag as we are rechecking now
-        log.debug("Recheck flag was cleared")
+    if queue.aftercheck:
+        queue.aftercheck = False                                                                        # Clear aftercheck flag because we are checking now
+        log.debug("Aftercheck flag was cleared")
 
     """Get list of the task checks that are still pending"""
     pending_checks = []
@@ -239,16 +228,16 @@ def dispatcher(jobs: dict, queue: asyncio.Queue()):
     """Spawn trailing afterchecks if new check tasks were schedulled"""
     if spawned_checks:
         for _ in asyncio.all_tasks():
-            if _._coro.__name__ in ['tasks_aftercheck', 'queue_recheck']:
+            if _._coro.__name__ == 'aftercheck':
                 _.cancel()
-        asyncio.create_task(tasks_aftercheck(pending_checks + spawned_checks, jobs, queue))             # Spawn new afterchecks for previosly pending and new tasks
+        asyncio.create_task(aftercheck(pending_checks + spawned_checks, jobs, queue))                   # Spawn new aftercheck for previosly pending and new tasks
 
 
 async def dispatcher_loop(jobs: dict, lock: asyncio.Lock(), queue: asyncio.Queue()):
     log = logging.getLogger("__main__")
-    log.info("Entering dispatcher loop..")
 
     """Main infinity dispatcher loop"""
+    log.info("Entering dispatcher loop..")
     while True:
         try:
             if not lock.locked():
@@ -266,7 +255,7 @@ async def dispatcher_loop(jobs: dict, lock: asyncio.Lock(), queue: asyncio.Queue
     pending_checks = []
     for _ in asyncio.all_tasks():
         match _._coro.__name__:
-            case 'tasks_aftercheck':                                                                    # Cancel pending aftercheck ASAP
+            case 'aftercheck':                                                                          # Cancel pending aftercheck ASAP
                 _.cancel()
             case 'task_check':                                                                          # Collect active check tasks
                 pending_checks.append(_)
@@ -294,7 +283,6 @@ async def worker(queue: asyncio.Queue(), queueloop_t: asyncio.Task, num: int):
             log.debug(f"Queue is stopping and empty, quiting worker-{num}")
             break
 
-        log.debug(f"Entering worker-{num} loop")
         asyncio.current_task().idling = True
         try:
             job = await queue.get()
@@ -323,7 +311,7 @@ async def worker(queue: asyncio.Queue(), queueloop_t: asyncio.Task, num: int):
             statedb[job]['isPending'] = False
             # TODO: add retry on fail
             if result:
-                queue.recheck = True                                                                    # Set flag to indicate state change for queue recheck
+                queue.aftercheck = True                                                                 # Set flag to indicate state change for aftercheck
             queue.task_done()
 
     asyncio.current_task().idling = True
@@ -333,15 +321,15 @@ async def queue_loop(queue: asyncio.Queue(), workers: int = 2):
     log = logging.getLogger("__main__")
     log.info(f"Starting queue with {workers} worker(s)..")
 
-    queue.recheck = False
+    queue.aftercheck = False
     asyncio.current_task().stopping = False
 
-    brigade = []
+    queue.brigade = []
     for _ in range(workers):
-        brigade.append(asyncio.create_task(worker(queue=queue, queueloop_t=asyncio.current_task(), num=_)))
+        queue.brigade.append(asyncio.create_task(worker(queue=queue, queueloop_t=asyncio.current_task(), num=_)))
 
     try:
-        await asyncio.shield(asyncio.gather(*brigade))
+        await asyncio.shield(asyncio.gather(*queue.brigade))
     except asyncio.CancelledError:
         pass
 
@@ -350,27 +338,23 @@ async def queue_loop(queue: asyncio.Queue(), workers: int = 2):
 
     asyncio.current_task().stopping = True
 
-    for _ in asyncio.all_tasks():
-        if _._coro.__name__ == 'queue_recheck':
-            _.cancel()
-
-    for _ in reversed(range(len(brigade))):
-        if brigade[_].idling:                                                                           # First cancell all idling workers
-            brigade[_].cancel()
+    for _ in reversed(range(len(queue.brigade))):
+        if queue.brigade[_].idling:                                                                     # First cancell all idling workers
+            queue.brigade[_].cancel()
             try:
-                await brigade[_]                                                                        # Ensure worker actually quited
+                await queue.brigade[_]                                                                  # Ensure worker actually quited
             except:
                 pass
             else:
-                del brigade[_]                                                                          # Remove quited worker from brigade
+                del queue.brigade[_]                                                                    # Remove quited worker from brigade
 
-    if brigade:
-        log.debug(f"{len(brigade)} worker(s) still processing jobs")
+    if queue.brigade:
+        log.debug(f"Queue has {queue.qsize()} item(s) and {len(queue.brigade)} worker(s) processing jobs")
         try:
-            await asyncio.shield(tasks_stopwait(brigade, timeout=1, msg='worker'))                      # Try to wait for workers to complete theris tasks during timeout seconds
+            await asyncio.shield(tasks_stopwait(queue.brigade, timeout=1, msg='worker'))                # Try to wait for workers to complete theris tasks during timeout seconds
         except asyncio.CancelledError:
             log.warning("Graceful shutdown terminated, cancelling all workers")
-            for _ in brigade:
+            for _ in queue.brigade:
                 _.cancel()                                                                              # Cancel leftover workers to prevent zombies
                 try:
                     await _                                                                             # Ensure worker actually quited
@@ -411,3 +395,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
