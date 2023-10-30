@@ -49,11 +49,9 @@ async def dummy_job(job: str) -> bool:
         log.warning(f"Dummy execution of job '{job}' cancelled")
         return False
     else:
-        if random.randint(0, 10) < 2:
-            log.debug(f"Dummy execution of job '{job}' finished: state not changed")
+        if random.randint(0, 10) < 3:
             return False
         else:
-            log.debug(f"Dummy execution of job '{job}' finished: state changed")
             return True
 
 
@@ -203,7 +201,7 @@ def dispatcher(jobs: dict, queue: asyncio.Queue()):
 
     if queue.aftercheck:
         queue.aftercheck = False                                                                        # Clear aftercheck flag because we are checking now
-        log.debug("Aftercheck flag was cleared")
+        log.debug("Aftercheck flag cleared")
 
     """Get list of the task checks that are still pending"""
     pending_checks = []
@@ -279,42 +277,57 @@ async def worker(queue: asyncio.Queue(), queueloop_t: asyncio.Task, num: int):
     log = logging.getLogger("__main__")
 
     while True:
-        if queueloop_t.stopping and queue.empty():
-            log.debug(f"Queue is stopping and empty, quiting worker-{num}")
-            break
-
         asyncio.current_task().idling = True
+
+        if queueloop_t.stopping and queue.empty():
+            log.debug(f"Queue is empty and stopping, worker[{num}] quited ")
+            return None
+
         try:
             job = await queue.get()
         except asyncio.CancelledError:
-            log.debug(f"Idling worker-{num} cancelled")
-            break
+            log.debug(f"Idling worker[{num}] was cancelled")
+            return None
 
         asyncio.current_task().idling = False
-        log.debug(f"Worker-{num} started processing job '{job}'")
-        try:
-            job_t = asyncio.create_task(dummy_job(job))
-            result = await asyncio.shield(job_t)
-        except asyncio.CancelledError:
-            log.warning(f"Busy worker-{num} was cancelled")
-            job_t.cancel()                                                                              # Propagate cancellation further to the child task
-            try:
-                await job_t                                                                             # Ensure the child task is actually cancelled and quited
-            except:
-                pass
-            statedb[job]['isPending'] = False
-            # TODO: job is not processed and mast be returned to queue
-            queue.task_done()
-            break
-        else:
-            log.debug(f"Worker-{num} completed processing job '{job}', retuning: {result}")
-            statedb[job]['isPending'] = False
-            # TODO: add retry on fail
-            if result:
-                queue.aftercheck = True                                                                 # Set flag to indicate state change for aftercheck
-            queue.task_done()
+        log.debug(f"Worker[{num}] started processing job '{job}'")
 
-    asyncio.current_task().idling = True
+        for attempt in range(1, 4):
+            if attempt > 1:
+                log.warning(f"Worker[{num}] failed to process job '{job}', retrying {attempt}/3")
+            job_t = asyncio.create_task(dummy_job(job))
+            try:
+                result = await asyncio.shield(job_t)
+            except asyncio.CancelledError:
+                log.warning(f"Active worker[{num}] was cancelled, returning job '{job}' to queue")
+                job_t.cancel()                                                                          # Propagate cancellation further to the child task
+                try:
+                    await job_t                                                                         # Ensure the child task is actually cancelled and quited
+                except:
+                    pass
+                try:
+                    await queue.put(job)                                                                # Return job to the end of the queue
+                except:
+                    statedb[job]['isPending'] = False                                                   # If not, just reset state so dispatcher can take it later
+                    pass
+                queue.task_done()
+                return None
+            else:
+                if result:
+                    log.debug(f"Worker[{num}] successfully processed job '{job}'")
+                    statedb[job]['isPending'] = False
+                    queue.aftercheck = True                                                             # Set flag to indicate state change for upcoming aftercheck
+                    break
+
+        if not result:
+            log.error(f"Worker[{num}] was unable to process job '{job}', returning to queue")
+            try:
+                await queue.put(job)                                                                    # Return job to the end of the queue giving workers chance to process more recent jobs
+            except:
+                statedb[job]['isPending'] = False                                                       # If not, just reset state so dispatcher can take it later
+                pass
+
+        queue.task_done()
 
 
 async def queue_loop(queue: asyncio.Queue(), workers: int = 2):
@@ -351,7 +364,7 @@ async def queue_loop(queue: asyncio.Queue(), workers: int = 2):
     if queue.brigade:
         log.debug(f"Queue has {queue.qsize()} item(s) and {len(queue.brigade)} worker(s) processing jobs")
         try:
-            await asyncio.shield(tasks_stopwait(queue.brigade, timeout=1, msg='worker'))                # Try to wait for workers to complete theris tasks during timeout seconds
+            await asyncio.shield(tasks_stopwait(queue.brigade, timeout=2, msg='worker'))                # Try to wait for workers to complete theris tasks during timeout seconds
         except asyncio.CancelledError:
             log.warning("Graceful shutdown terminated, cancelling all workers")
             for _ in queue.brigade:
@@ -361,7 +374,7 @@ async def queue_loop(queue: asyncio.Queue(), workers: int = 2):
                 except:
                     pass
 
-    log.info("Queue is stopped")
+    log.info(f"Queue is stopped having {queue.qsize()} unprocessed item(s)")
 
 
 async def main_loop(jobs: dict):
