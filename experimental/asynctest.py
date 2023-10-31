@@ -317,7 +317,7 @@ async def worker(queue: asyncio.Queue(), queueloop_t: asyncio.Task, num: int):
                 try:
                     await queue.put(job)                                                                # Return job to the end of the queue
                 except:
-                    statedb[job]['pending'] = False                                                   # If not, just reset state so dispatcher can take it later
+                    statedb[job]['pending'] = False                                                     # If not, just reset state so dispatcher can take it later
                     pass
                 queue.task_done()
                 return None
@@ -333,7 +333,7 @@ async def worker(queue: asyncio.Queue(), queueloop_t: asyncio.Task, num: int):
             try:
                 await queue.put(job)                                                                    # Return job to the end of the queue giving workers chance to process more recent jobs
             except:
-                statedb[job]['pending'] = False                                                       # If not, just reset state so dispatcher can take it later
+                statedb[job]['pending'] = False                                                         # If not, just reset state so dispatcher can take it later
                 pass
 
         queue.task_done()
