@@ -13,8 +13,6 @@ from datetime import datetime, timedelta
 
 _version_ = "0.3.3"
 
-executor = None
-
 jobs = { 'light': { 'duration': 1 }, 'co2': { 'duration': 1.5 }, 'ferts': { 'duration': 2 }, 'pump': { 'duration': 4 } }
 statedb = { 'light': { 'pending': False }, 'co2': { 'pending': False }, 'ferts': { 'pending': False }, 'pump': { 'pending': False } }
 
