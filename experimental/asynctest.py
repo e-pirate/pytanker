@@ -5,6 +5,7 @@ import logging
 import time
 import os
 import asyncio
+from concurrent.futures import ProcessPoolExecutor
 import functools
 import signal
 import random
@@ -12,17 +13,22 @@ from datetime import datetime, timedelta
 
 _version_ = "0.3.3"
 
+executor = None
+
 jobs = { 'light': { 'duration': 1 }, 'co2': { 'duration': 1.5 }, 'ferts': { 'duration': 2 }, 'pump': { 'duration': 4 } }
 statedb = { 'light': { 'isPending': False }, 'co2': { 'isPending': False }, 'ferts': { 'isPending': False }, 'pump': { 'isPending': False } }
 
 
 async def task_check(job: str, queue: asyncio.Queue()) -> bool:
     log = logging.getLogger("__main__")
+    loop = asyncio.get_event_loop()
 
     duration = random.randint(0, int(jobs[job]['duration'] * 500)) / 1000
     log.debug(f"Checking of job '{job}' ({duration}s) started")
+
     try:
-        await asyncio.sleep(duration)
+        await asyncio.sleep(duration / 2)                                                               # Non-blocking function
+        await loop.run_in_executor(executor, time.sleep, duration / 2)                                  # Blocking function executed in multiprocessing pool
     except asyncio.CancelledError:
         log.warning(f"Checking of job '{job}' cancelled")
         statedb[job]['isPending'] = False
@@ -378,6 +384,8 @@ async def queue_loop(queue: asyncio.Queue(), workers: int = 2):
 
 
 async def main_loop(jobs: dict):
+    global executor
+    executor = ProcessPoolExecutor()
     dispatcher_lock = asyncio.Lock()
     queue = asyncio.Queue()
 
