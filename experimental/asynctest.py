@@ -83,7 +83,7 @@ async def async_shutdown():
             log.warning("Queue terminated abnormally")
 
 
-def handler_shutdown(signame: str, loop: asyncio.AbstractEventLoop):
+def handler_shutdown(signame: str):
     log = logging.getLogger("__main__")
     log.info(f"Received {signame}: exiting..")
 
@@ -383,8 +383,8 @@ async def main_loop(jobs: dict):
 
     """Add signal handlers"""
     loop = asyncio.get_running_loop()
-    loop.add_signal_handler(getattr(signal, 'SIGINT'), functools.partial(handler_shutdown, 'SIGINT', loop))
-    loop.add_signal_handler(getattr(signal, 'SIGTERM'), functools.partial(handler_shutdown, 'SIGTERM', loop))
+    loop.add_signal_handler(getattr(signal, 'SIGINT'), functools.partial(handler_shutdown, 'SIGINT'))
+    loop.add_signal_handler(getattr(signal, 'SIGTERM'), functools.partial(handler_shutdown, 'SIGTERM'))
     loop.add_signal_handler(getattr(signal, 'SIGHUP'), functools.partial(handler_confupdate, 'SIGHUP', dispatcher_lock))   # ps aux | egrep 'python.*asynctest\.py' | awk '{ print $2 }' | xargs kill -1
     loop.add_signal_handler(getattr(signal, 'SIGQUIT'), functools.partial(handler_confupdate, 'SIGQUIT', dispatcher_lock)) # For debug purposes only (Ctrl-\)
 
