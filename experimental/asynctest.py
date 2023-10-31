@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 _version_ = "0.3.3"
 
 jobs = { 'light': { 'duration': 1 }, 'co2': { 'duration': 1.5 }, 'ferts': { 'duration': 2 }, 'pump': { 'duration': 4 } }
-statedb = { 'light': { 'isPending': False }, 'co2': { 'isPending': False }, 'ferts': { 'isPending': False }, 'pump': { 'isPending': False } }
+statedb = { 'light': { 'pending': False }, 'co2': { 'pending': False }, 'ferts': { 'pending': False }, 'pump': { 'pending': False } }
 
 
 async def task_check(job: str, queue: asyncio.Queue()) -> bool:
@@ -25,12 +25,12 @@ async def task_check(job: str, queue: asyncio.Queue()) -> bool:
         await asyncio.sleep(duration)
     except asyncio.CancelledError:
         log.warning(f"Checking of job '{job}' cancelled")
-        statedb[job]['isPending'] = False
+        statedb[job]['pending'] = False
         return False
     else:
         if random.randint(0, 10) < 5:
             log.debug(f"Checking of job '{job}' completed: target state not updated")
-            statedb[job]['isPending'] = False
+            statedb[job]['pending'] = False
             return False
         else:
             log.debug(f"Checking of job '{job}' completed: targed state updated, adding to queue")
@@ -213,10 +213,10 @@ def dispatcher(jobs: dict, queue: asyncio.Queue()):
     spawned_checks = []
     pending_jobs = []
     for job in jobs:
-        if statedb[job]['isPending']:
+        if statedb[job]['pending']:
             pending_jobs.append(job)
             continue
-        statedb[job]['isPending'] = True
+        statedb[job]['pending'] = True
         new_t = asyncio.create_task(task_check(job, queue))
         spawned_checks.append(new_t)
     if pending_jobs:
@@ -308,14 +308,14 @@ async def worker(queue: asyncio.Queue(), queueloop_t: asyncio.Task, num: int):
                 try:
                     await queue.put(job)                                                                # Return job to the end of the queue
                 except:
-                    statedb[job]['isPending'] = False                                                   # If not, just reset state so dispatcher can take it later
+                    statedb[job]['pending'] = False                                                   # If not, just reset state so dispatcher can take it later
                     pass
                 queue.task_done()
                 return None
             else:
                 if result:
                     log.debug(f"Worker[{num}] successfully processed job '{job}'")
-                    statedb[job]['isPending'] = False
+                    statedb[job]['pending'] = False
                     queue.aftercheck = True                                                             # Set flag to indicate state change for upcoming aftercheck
                     break
 
@@ -324,7 +324,7 @@ async def worker(queue: asyncio.Queue(), queueloop_t: asyncio.Task, num: int):
             try:
                 await queue.put(job)                                                                    # Return job to the end of the queue giving workers chance to process more recent jobs
             except:
-                statedb[job]['isPending'] = False                                                       # If not, just reset state so dispatcher can take it later
+                statedb[job]['pending'] = False                                                       # If not, just reset state so dispatcher can take it later
                 pass
 
         queue.task_done()
