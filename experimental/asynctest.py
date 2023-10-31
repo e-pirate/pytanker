@@ -27,6 +27,7 @@ async def task_check(job: str, queue: asyncio.Queue()) -> bool:
     try:
         await asyncio.sleep(duration / 2)                                                               # Non-blocking function
         await loop.run_in_executor(executor, time.sleep, duration / 2)                                  # Blocking function executed in multiprocessing pool
+        await loop.run_in_executor(executor, pow, 125, 100000)
     except asyncio.CancelledError:
         log.warning(f"Checking of job '{job}' cancelled")
         statedb[job]['pending'] = False
@@ -88,16 +89,20 @@ async def async_shutdown():
 
 
 def handler_shutdown(signame: str, loop: asyncio.AbstractEventLoop):
+    global async_shutdown_t
     log = logging.getLogger("__main__")
-    log.info(f"Received {signame}: exiting..")
 
-    asyncio.create_task(async_shutdown())
+    try:
+        async_shutdown_t
+    except NameError:
+        log.info(f"Received {signame}: exiting..")
+        async_shutdown_t = asyncio.create_task(async_shutdown())
 
 
 def handler_confupdate(signame: str, lock: asyncio.Lock()):
     log = logging.getLogger("__main__")
-    log.info(f"Received {signame}: updating configuration..")
 
+    log.info(f"Received {signame}: updating configuration..")
     asyncio.create_task(conf_update(lock))
 
 
@@ -383,7 +388,7 @@ async def queue_loop(queue: asyncio.Queue(), workers: int = 2):
 
 async def main_loop(jobs: dict):
     global executor
-    executor = ProcessPoolExecutor()
+    executor = ProcessPoolExecutor(max_workers=[None, 4][os.cpu_count() >= 4])                          # Initilaze multiprocessing executor pool limited to 4 processes maximum
     dispatcher_lock = asyncio.Lock()
     queue = asyncio.Queue()
 
@@ -395,6 +400,8 @@ async def main_loop(jobs: dict):
     loop.add_signal_handler(getattr(signal, 'SIGQUIT'), functools.partial(handler_confupdate, 'SIGQUIT', dispatcher_lock)) # For debug purposes only (Ctrl-\)
 
     await asyncio.gather(queue_loop(queue=queue), dispatcher_loop(jobs, lock=dispatcher_lock, queue=queue))
+
+    executor.shutdown()
 
 
 def main():
