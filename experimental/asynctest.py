@@ -11,10 +11,18 @@ import signal
 import random
 from datetime import datetime, timedelta
 
-_version_ = "0.3.3"
+_version_ = "0.3.4"
 
 jobs = { 'light': { 'duration': 1 }, 'co2': { 'duration': 1.5 }, 'ferts': { 'duration': 2 }, 'pump': { 'duration': 4 } }
 statedb = { 'light': { 'pending': False }, 'co2': { 'pending': False }, 'ferts': { 'pending': False }, 'pump': { 'pending': False } }
+
+
+def async_func_wrapper(func: callable, *args, **kwargs):
+    """Wrap awaitable functions so they can be offloaded to multiprocess executor
+    Usage: await loop.run_in_executor(executor, async_func_wrapper, asyncfunc, args)
+    """
+    loop = asyncio.new_event_loop()
+    return loop.run_until_complete(func(*args, **kwargs))
 
 
 async def task_check(job: str, queue: asyncio.Queue()) -> bool:
@@ -26,8 +34,7 @@ async def task_check(job: str, queue: asyncio.Queue()) -> bool:
 
     try:
         await asyncio.sleep(duration / 2)                                                               # Non-blocking function
-        await loop.run_in_executor(executor, time.sleep, duration / 2)                                  # Blocking function executed in multiprocessing pool
-        await loop.run_in_executor(executor, pow, 125, 100000)
+        await loop.run_in_executor(executor, time.sleep, duration / 2)                                  # Offload blocking function to be executed in multiprocessing pool
     except asyncio.CancelledError:
         log.warning(f"Checking of job '{job}' cancelled")
         statedb[job]['pending'] = False
@@ -89,14 +96,10 @@ async def async_shutdown():
 
 
 def handler_shutdown(signame: str):
-    global async_shutdown_t
     log = logging.getLogger("__main__")
 
-    try:
-        async_shutdown_t
-    except NameError:
-        log.info(f"Received {signame}: exiting..")
-        async_shutdown_t = asyncio.create_task(async_shutdown())
+    log.info(f"Received {signame}: exiting..")
+    asyncio.create_task(async_shutdown())
 
 
 def handler_confupdate(signame: str, lock: asyncio.Lock()):
@@ -386,9 +389,17 @@ async def queue_loop(queue: asyncio.Queue(), workers: int = 2):
     log.info(f"Queue is stopped having {queue.qsize()} unprocessed item(s)")
 
 
+def worker_initializer():
+    """Let main process take care of signals by ignoring handled signals in worker process"""
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    signal.signal(signal.SIGHUP, signal.SIG_IGN)
+    signal.signal(signal.SIGQUIT, signal.SIG_IGN)
+
+
 async def main_loop(jobs: dict):
     global executor
-    executor = ProcessPoolExecutor(max_workers=[None, 4][os.cpu_count() >= 4])                          # Initilaze multiprocessing executor pool limited to 4 processes maximum
+    executor = ProcessPoolExecutor(max_workers=[None, 4][os.cpu_count() >= 4], initializer=worker_initializer)             # Initilaze multiprocessing executor pool limited to 4 processes maximum
     dispatcher_lock = asyncio.Lock()
     queue = asyncio.Queue()
 
@@ -412,6 +423,7 @@ def main():
     log.handlers.clear()
     log.addHandler(handler)
     log.setLevel(logging.DEBUG)
+
     log.info(f"Starting asyncio test program v{_version_}..")
 
     asyncio.run(main_loop(jobs=jobs))
@@ -422,3 +434,8 @@ def main():
 if __name__ == "__main__":
     main()
 
+
+"""Docs:
+https://docs.python.org/3.11/library/asyncio.html
+https://docs.python.org/3/library/concurrent.futures.html
+"""
