@@ -5,7 +5,7 @@ import logging
 import time
 import os
 import asyncio
-from concurrent.futures import ProcessPoolExecutor
+import concurrent.futures
 import functools
 import signal
 import random
@@ -25,7 +25,7 @@ def async_func_wrapper(func: callable, *args, **kwargs):
     return loop.run_until_complete(func(*args, **kwargs))
 
 
-async def task_check(job: str, queue: asyncio.Queue()) -> bool:
+async def task_check(job: str, executor: concurrent.futures.ProcessPoolExecutor, queue: asyncio.Queue()) -> bool:
     log = logging.getLogger("__main__")
     loop = asyncio.get_event_loop()
 
@@ -165,7 +165,7 @@ async def tasks_stopwait(pending_tasks: list, timeout: int = 1, msg: str = 'task
     return result
 
 
-async def aftercheck(pending_checks: list, jobs: dict, queue: asyncio.Queue()) -> bool:
+async def aftercheck(pending_checks: list, jobs: dict, executor: concurrent.futures.ProcessPoolExecutor, queue: asyncio.Queue()) -> bool:
     log = logging.getLogger("__main__")
 
     """First wait for all pending check tasks to complete. If aftercheck happen to start dispatcher
@@ -199,14 +199,14 @@ async def aftercheck(pending_checks: list, jobs: dict, queue: asyncio.Queue()) -
     """
     if queue.aftercheck:
         log.debug("All pending jobs completed, state changed, launching dispatcher")
-        dispatcher(jobs, queue)
+        dispatcher(jobs, executor, queue)
         return False
     else:
         log.debug("All pending jobs completed, state not changed")
         return True
 
 
-def dispatcher(jobs: dict, queue: asyncio.Queue()):
+def dispatcher(jobs: dict, executor: concurrent.futures.ProcessPoolExecutor, queue: asyncio.Queue()):
     log = logging.getLogger("__main__")
 
     log.debug("Dispatcher started")
@@ -229,7 +229,7 @@ def dispatcher(jobs: dict, queue: asyncio.Queue()):
             pending_jobs.append(job)
             continue
         statedb[job]['pending'] = True
-        new_t = asyncio.create_task(task_check(job, queue))
+        new_t = asyncio.create_task(task_check(job, executor, queue))
         spawned_checks.append(new_t)
     if pending_jobs:
         log.debug(f"Pending job(s) that were skipped: {pending_jobs}")
@@ -240,10 +240,10 @@ def dispatcher(jobs: dict, queue: asyncio.Queue()):
         for _ in asyncio.all_tasks():
             if _._coro.__name__ == 'aftercheck':
                 _.cancel()
-        asyncio.create_task(aftercheck(pending_checks + spawned_checks, jobs, queue))                   # Spawn new aftercheck for previosly pending and new tasks
+        asyncio.create_task(aftercheck(pending_checks + spawned_checks, jobs, executor, queue))         # Spawn new aftercheck for previosly pending and new tasks
 
 
-async def dispatcher_loop(jobs: dict, lock: asyncio.Lock(), queue: asyncio.Queue()):
+async def dispatcher_loop(jobs: dict, executor: concurrent.futures.ProcessPoolExecutor, queue: asyncio.Queue(), lock: asyncio.Lock()):
     log = logging.getLogger("__main__")
 
     """Main infinity dispatcher loop"""
@@ -252,7 +252,7 @@ async def dispatcher_loop(jobs: dict, lock: asyncio.Lock(), queue: asyncio.Queue
         try:
             if not lock.locked():
                 async with lock:
-                    dispatcher(jobs, queue)
+                    dispatcher(jobs, executor, queue)
             else:
                 log.debug("Dispatcher lock is set, skipping run")
 
@@ -398,8 +398,7 @@ def worker_initializer():
 
 
 async def main_loop(jobs: dict):
-    global executor
-    executor = ProcessPoolExecutor(max_workers=[None, 4][os.cpu_count() >= 4], initializer=worker_initializer)             # Initilaze multiprocessing executor pool limited to 4 processes maximum
+    executor = concurrent.futures.ProcessPoolExecutor(max_workers=[None, 4][os.cpu_count() >= 4], initializer=worker_initializer)   # Initilaze multiprocessing executor pool limited to 4 processes maximum
     dispatcher_lock = asyncio.Lock()
     queue = asyncio.Queue()
 
@@ -410,7 +409,7 @@ async def main_loop(jobs: dict):
     loop.add_signal_handler(getattr(signal, 'SIGHUP'), functools.partial(handler_confupdate, 'SIGHUP', dispatcher_lock))   # ps aux | egrep 'python.*asynctest\.py' | awk '{ print $2 }' | xargs kill -1
     loop.add_signal_handler(getattr(signal, 'SIGQUIT'), functools.partial(handler_confupdate, 'SIGQUIT', dispatcher_lock)) # For debug purposes only (Ctrl-\)
 
-    await asyncio.gather(queue_loop(queue=queue), dispatcher_loop(jobs, lock=dispatcher_lock, queue=queue))
+    await asyncio.gather(queue_loop(queue=queue), dispatcher_loop(jobs=jobs, executor=executor, queue=queue, lock=dispatcher_lock))
 
     executor.shutdown()
 
