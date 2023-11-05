@@ -7,12 +7,13 @@ import time
 import os
 import asyncio
 import serial
+#import serial_asyncio
 import functools
 import signal
 import random
 from datetime import datetime, timedelta
 
-_version_ = "0.3.1"
+_version_ = "0.0.1"
 
 jobs = { 'light': { 'duration': 1 }, 'co2': { 'duration': 1.5 }, 'dummy': { 'duration': 2 } }
 statedb = { 'light': { 'isPending': False }, 'co2': { 'isPending': False }, 'dummy': { 'isPending': False } }
@@ -74,7 +75,7 @@ def handler_shutdown(signame: str, loop: asyncio.AbstractEventLoop):
     log.info(f"Received {signame}: exiting..")
 
     for t in asyncio.all_tasks():                                                                       # Cancel the dispatcher loop, pending aftercheck
-        if t._coro.__name__ == 'dispatcher_loop':                                                       # will be cancelled automatically
+        if t._coro.__name__ == 'serial_loop':                                                           # will be cancelled automatically
             t.cancel()
 
 
@@ -154,9 +155,9 @@ def dispatcher(jobs: dict):
     dispatcher_lock = False
 
 
-async def dispatcher_loop(jobs: dict):
+async def serial_loop(ser):
     log = logging.getLogger("__main__")
-    log.info("Entering dispatcher loop..")
+    log.info("Entering sender loop..")
 
     """ Add signal handlers """
     loop = asyncio.get_running_loop()
@@ -165,44 +166,65 @@ async def dispatcher_loop(jobs: dict):
     loop.add_signal_handler(getattr(signal, 'SIGHUP'), functools.partial(handler_confupdate, 'SIGHUP'))
     loop.add_signal_handler(getattr(signal, 'SIGQUIT'), functools.partial(handler_confupdate, 'SIGQUIT')) # For debug purposes only
 
-    """ Main infinity dispatcher loop """
+
+#TODO: use aioserial 1.3.1
+
+    """ Main infinity serial loop """
     while True:
         try:
-            dispatcher(jobs)
+            data = ''.join(random.choice("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789") for _ in range(8))
+            log.debug(data)
+            try:
+                ser.write((data + '\r\n').encode("ascii"))
+            except Exception as e:
+                log.error(e)
             await asyncio.sleep(int(time.time()) + 1 - time.time())                                     # Schedule check for the next round upcoming second
         except asyncio.CancelledError:
-            log.info("Shutting down dispatcher loop")
+            log.info("Shutting down serial loop")
             break
 
-    """ Gracefull shutdown """
-    pending_tasks = []
-    for t in asyncio.all_tasks():
-        match t._coro.__name__:
-            case 'tasks_aftercheck':                                                                    # Cancel pending aftercheck ASAP
-                t.cancel()
-            case 'task_check':                                                                          # Collect active check tasks
-                pending_tasks.append(t)
-    if pending_tasks:
-        try:
-            await asyncio.shield(tasks_stopwait(pending_tasks, timeout=1))                              # Try to wait for tasks to finish during timeout seconds
-        except asyncio.CancelledError:
-            log.warning("Graceful shutdown terminated, cancelling pending tasks")
-
+#    """ Gracefull shutdown """
+#    pending_tasks = []
+#    for t in asyncio.all_tasks():
+#        match t._coro.__name__:
+#            case 'tasks_aftercheck':                                                                    # Cancel pending aftercheck ASAP
+#                t.cancel()
+#            case 'task_check':                                                                          # Collect active check tasks
+#                pending_tasks.append(t)
+#    if pending_tasks:
+#        try:
+#            await asyncio.shield(tasks_stopwait(pending_tasks, timeout=1))                              # Try to wait for tasks to finish during timeout seconds
+#        except asyncio.CancelledError:
+#            log.warning("Graceful shutdown terminated, cancelling pending tasks")
 
 def main():
     """ Setup logging """
     handler = logging.StreamHandler()
     handler.setFormatter(logging.Formatter(fmt='%(asctime)s.%(msecs)03d asynctest: (%(levelname).1s) %(message)s', datefmt="%H:%M:%S"))
     log = logging.getLogger(__name__)
-#    log.handlers.clear()
-#    log.addHandler(handler)
+    log.handlers.clear()
+    log.addHandler(handler)
     log.setLevel(logging.DEBUG)
-    log.info(f"Starting usart-sender test program v{_version_}..")
+    log.info(f"Starting serial-sender test program v{_version_}..")
 
-    asyncio.run(dispatcher_loop(jobs))
+    try:
+        ser = serial.serial_for_url('/dev/pts/7', baudrate=115200, write_timeout=0)                     # write_timeout mast be set to 0 to make writes non-blocking
+    except Exception as e:
+        log.critical(f"Failed to open serial device: {e}")
+        sys.exit(1)
 
-    log.info(f"Shutting down uart-sender test program v{_version_}..")
+    asyncio.run(serial_loop(ser))
+
+    ser.close()
+
+    log.info(f"Shutting down serial test program v{_version_}..")
 
 
 if __name__ == "__main__":
     main()
+
+"""Serial debug usage:
+socat -d -d pty,raw,echo=1,b115200 pty,raw,echo=1,b115200
+cu -h -s 115200 -l /dev/pts/9
+"""
+
