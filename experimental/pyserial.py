@@ -24,71 +24,92 @@ def handler_shutdown(signame: str):
     log.info(f"Received {signame}: exiting..")
 
     for t in asyncio.all_tasks():                                                                       # Cancel the dispatcher loop, pending aftercheck
-        if t._coro.__name__ in ['serial_loop', 'async_serial_sender', 'dummy_send']:                                                           # will be cancelled automatically
+        if t._coro.__name__ in ['serial_loop', 'dummy_write']:                                                           # will be cancelled automatically
             t.cancel()
 
 
-async def async_serial_sender(ser):
+async def async_serial_reader(ser):
+    log = logging.getLogger("__main__")
+
+    while True:
+        if ser.in_waiting > 0:
+            async with ser.rx_lock:
+                ser.rx_buff += ser.read(ser.in_waiting).decode("ascii")
+        try:
+            await asyncio.sleep(0.1)
+        except:
+            log.info("Shutting down async serial reader")
+            break
+
+
+async def serial_read(ser):
+    async with ser.rx_lock:
+        data = ser.rx_buff
+        ser.rx_buff = ''
+    return(data)
+
+
+async def async_serial_writer(ser):
     log = logging.getLogger("__main__")
 
     while True:
         try:
             await ser.tx_flag.wait()
-            try:
-                ser.write(ser.tx_buff.encode("ascii"))
-            except Exception as e:
-                log.error(e)
-            else:
-                ser.tx_buff = ''
-                ser.tx_flag.clear()
         except asyncio.CancelledError:
-            log.info("Shutting down async serial sender")
+            log.info("Shutting down async serial writer")
             break
+        else:
+            async with ser.tx_lock:
+                try:
+                    ser.write(ser.tx_buff.encode("ascii"))
+                except Exception as e:
+                    log.error(f"Failed to send data over serial: {e}")
+                else:
+                    ser.tx_buff = ''
+                    ser.tx_flag.clear()
 
 
-def serial_send(ser, data):
-    ser.tx_buff += data
-    ser.tx_flag.set()
+async def serial_write(ser, data):
+    async with ser.tx_lock:
+        ser.tx_buff += data
+        ser.tx_flag.set()
 
 
 async def serial_loop(ser):
     log = logging.getLogger("__main__")
     ser.tx_flag = asyncio.Event()
+    ser.tx_lock = asyncio.Lock()
     ser.tx_buff = ''
+    ser.rx_flag = asyncio.Event()
+    ser.rx_lock = asyncio.Lock()
+    ser.rx_buff = ''
 
     log.info("Entering serial loop..")
     try:
-        await async_serial_sender(ser)
+        await asyncio.gather(async_serial_reader(ser), async_serial_writer(ser))
     except asyncio.CancelledError:
         log.info("Shutting down serial loop")
 
+    """ Gracefull shutdown """
+    for _ in asyncio.all_tasks():
+        if _._coro.__name__ in ['async_serial_reader', 'async_serial_writer']:
+            _.cancel()
 
-#    """ Gracefull shutdown """
-#    pending_tasks = []
-#    for t in asyncio.all_tasks():
-#        match t._coro.__name__:
-#            case 'tasks_aftercheck':                                                                    # Cancel pending aftercheck ASAP
-#                t.cancel()
-#            case 'task_check':                                                                          # Collect active check tasks
-#                pending_tasks.append(t)
-#    if pending_tasks:
-#        try:
-#            await asyncio.shield(tasks_stopwait(pending_tasks, timeout=1))                              # Try to wait for tasks to finish during timeout seconds
-#        except asyncio.CancelledError:
-#            log.warning("Graceful shutdown terminated, cancelling pending tasks")
 
-async def dummy_send(ser):
+async def dummy_write(ser):
     log = logging.getLogger("__main__")
     while True:
-        data = ''.join(random.choice("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789") for _ in range(8))
-        log.debug(data)
-        serial_send(ser, data + '\r\n')
+        #        data = ''.join(random.choice("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789") for _ in range(8))
+#        log.debug(data)
+#        await serial_write(ser, data + '\r\n')
+        data = await serial_read(ser)
+        if len(data):
+            log.info(f"{data}")
         try:
             await asyncio.sleep(1)                                     # Schedule check for the next round upcoming second
         except asyncio.CancelledError:
             log.info("Shutting down dummy sender loop")
             break
-
 
 
 async def main_loop(jobs: dict):
@@ -104,7 +125,7 @@ async def main_loop(jobs: dict):
         log.critical(f"Failed to open serial device: {e}")
         sys.exit(1)
 
-    await asyncio.gather(serial_loop(ser=ser), dummy_send(ser))
+    await asyncio.gather(serial_loop(ser=ser), dummy_write(ser))
 
     ser.close()
 
