@@ -1,3 +1,4 @@
 .gitignore
+venv
 devices.d/*.bak
 tasks.d/*.*
