@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 _version_ = "0.3.4"
 
 jobs = { 'light': { 'duration': 1 }, 'co2': { 'duration': 1.5 }, 'ferts': { 'duration': 2 }, 'pump': { 'duration': 4 } }
-statedb = { 'light': { 'pending': False }, 'co2': { 'pending': False }, 'ferts': { 'pending': False }, 'pump': { 'pending': False } }
+statedb = { 'light': { 'is_pending': False }, 'co2': { 'is_pending': False }, 'ferts': { 'is_pending': False }, 'pump': { 'is_pending': False } }
 
 
 def async_func_wrapper(func: callable, *args, **kwargs):
@@ -37,12 +37,12 @@ async def task_check(job: str, executor: concurrent.futures.ProcessPoolExecutor,
         await loop.run_in_executor(executor, time.sleep, duration / 2)                                  # Offload blocking function to be executed in multiprocessing pool
     except asyncio.CancelledError:
         log.warning(f"Checking of job '{job}' cancelled")
-        statedb[job]['pending'] = False
+        statedb[job]['is_pending'] = False
         return False
     else:
         if random.randint(0, 10) < 5:
             log.debug(f"Checking of job '{job}' completed: target state not updated")
-            statedb[job]['pending'] = False
+            statedb[job]['is_pending'] = False
             return False
         else:
             log.debug(f"Checking of job '{job}' completed: targed state updated, adding to queue")
@@ -215,6 +215,7 @@ def dispatcher(jobs: dict, executor: concurrent.futures.ProcessPoolExecutor, que
         queue.aftercheck = False                                                                        # Clear aftercheck flag because we are checking now
         log.debug("Aftercheck flag cleared")
 
+    # TODO: move to asyncio TaskGroup
     """Get list of the task checks that are still pending"""
     pending_checks = []
     for _ in asyncio.all_tasks():
@@ -225,10 +226,10 @@ def dispatcher(jobs: dict, executor: concurrent.futures.ProcessPoolExecutor, que
     spawned_checks = []
     pending_jobs = []
     for job in jobs:
-        if statedb[job]['pending']:
+        if statedb[job]['is_pending']:
             pending_jobs.append(job)
             continue
-        statedb[job]['pending'] = True
+        statedb[job]['is_pending'] = True
         new_t = asyncio.create_task(task_check(job, executor, queue))
         spawned_checks.append(new_t)
     if pending_jobs:
@@ -320,14 +321,14 @@ async def worker(queue: asyncio.Queue(), queueloop_t: asyncio.Task, num: int):
                 try:
                     await queue.put(job)                                                                # Return job to the end of the queue
                 except:
-                    statedb[job]['pending'] = False                                                     # If not, just reset state so dispatcher can take it later
+                    statedb[job]['is_pending'] = False                                                  # If not, just reset state so dispatcher can take it later
                     pass
                 queue.task_done()
                 return None
             else:
                 if result:
                     log.debug(f"Worker[{num}] successfully processed job '{job}'")
-                    statedb[job]['pending'] = False
+                    statedb[job]['is_pending'] = False
                     queue.aftercheck = True                                                             # Set flag to indicate state change for upcoming aftercheck
                     break
 
@@ -336,7 +337,7 @@ async def worker(queue: asyncio.Queue(), queueloop_t: asyncio.Task, num: int):
             try:
                 await queue.put(job)                                                                    # Return job to the end of the queue giving workers chance to process more recent jobs
             except:
-                statedb[job]['pending'] = False                                                         # If not, just reset state so dispatcher can take it later
+                statedb[job]['is_pending'] = False                                                      # If not, just reset state so dispatcher can take it later
                 pass
 
         queue.task_done()
